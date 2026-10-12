@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { getPool } = require('../db/pool');
+const { recordActivityInTransaction } = require('../services/activity').createActivityService();
 
 async function createProject({ workspaceId, actorId, name, description }) {
   try {
@@ -17,7 +18,7 @@ async function createProject({ workspaceId, actorId, name, description }) {
       [workspaceId, actorId, randomUUID(), name, description],
     );
       if (!rows[0]) return null;
-      await recordActivity(client, {
+      await recordActivityInTransaction(client, {
         workspaceId, actorId, eventType: 'project_created', entityType: 'project',
         entityId: rows[0].id, projectId: rows[0].id,
       });
@@ -78,7 +79,7 @@ async function updateProjectForManager({ workspaceId, projectId, actorId, name, 
     [workspaceId, projectId, actorId, name.provided, name.value, description.provided, description.value],
   );
     if (!rows[0]) return null;
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId, eventType: 'project_updated', entityType: 'project',
       entityId: rows[0].id, projectId: rows[0].id,
       metadata: { changedFields: [name.provided && 'name', description.provided && 'description'].filter(Boolean) },
@@ -102,7 +103,7 @@ async function deleteProjectForManager({ workspaceId, projectId, actorId }) {
     [workspaceId, projectId, actorId],
   );
     if (!rows[0]) return false;
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId, eventType: 'project_deleted', entityType: 'project',
       entityId: rows[0].id,
     });
@@ -143,7 +144,7 @@ async function createTask({ workspaceId, projectId, actorId, task }) {
       [randomUUID(), workspaceId, projectId, task.title, task.description, task.status,
         task.priority, task.assigneeId, actorId, task.dueDate],
     );
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId, eventType: 'task_created', entityType: 'task',
       entityId: rows[0].id, projectId, taskId: rows[0].id,
     });
@@ -255,7 +256,7 @@ async function updateTaskForMember({ workspaceId, projectId, taskId, actorId, ex
       .map(([field]) => field);
     const assignmentChanged = changes.assigneeId.provided
       && changes.assigneeId.value !== locked.rows[0].assigneeId;
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId,
       eventType: assignmentChanged ? 'task_assigned' : 'task_updated',
       entityType: 'task', entityId: rows[0].id, projectId, taskId: rows[0].id,
@@ -280,24 +281,12 @@ async function deleteTaskForManager({ workspaceId, projectId, taskId, actorId })
     [workspaceId, projectId, taskId, actorId],
   );
     if (!rows[0]) return false;
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId, eventType: 'task_deleted', entityType: 'task',
       entityId: rows[0].id, projectId,
     });
     return true;
   });
-}
-
-async function recordActivity(client, {
-  workspaceId, actorId, eventType, entityType, entityId,
-  projectId = null, taskId = null, commentId = null, metadata = {},
-}) {
-  await client.query(
-    `INSERT INTO activity_events
-       (workspace_id, actor_id, event_type, entity_type, entity_id, project_id, task_id, comment_id, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
-    [workspaceId, actorId, eventType, entityType, entityId, projectId, taskId, commentId, JSON.stringify(metadata)],
-  );
 }
 
 async function lockWorkspaceForActivity(client, workspaceId) {
@@ -336,7 +325,6 @@ module.exports = {
   getTaskForMember,
   listProjectsForMember,
   listTasksForMember,
-  recordActivity,
   updateProjectForManager,
   updateTaskForMember,
 };

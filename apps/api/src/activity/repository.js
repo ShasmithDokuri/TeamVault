@@ -1,5 +1,17 @@
 const { getPool } = require('../db/pool');
 
+async function recordActivity(client, {
+  workspaceId, actorId, eventType, entityType, entityId,
+  projectId = null, taskId = null, commentId = null, metadata = {},
+}) {
+  await client.query(
+    `INSERT INTO activity_events
+       (workspace_id, actor_id, event_type, entity_type, entity_id, project_id, task_id, comment_id, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+    [workspaceId, actorId, eventType, entityType, entityId, projectId, taskId, commentId, JSON.stringify(metadata)],
+  );
+}
+
 async function listActivityForMember({ workspaceId, actorId, limit, before }) {
   const { rows } = await getPool().query(
     `SELECT actor.user_id AS "authorizedUserId",
@@ -24,4 +36,4 @@ async function listActivityForMember({ workspaceId, actorId, limit, before }) {
   };
 }
 
-module.exports = { listActivityForMember };
+module.exports = { listActivityForMember, recordActivity };

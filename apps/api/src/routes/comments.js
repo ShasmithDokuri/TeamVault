@@ -1,29 +1,29 @@
 const express = require('express');
 const { createRequireAuth } = require('../middleware/require-auth');
-const repository = require('../comments/repository');
+const { createCommentService } = require('../services/comments');
 const { hasOnlyKeys, isUuid, validateRequiredText, validateVersion } = require('../projects/validation');
 
-function createCommentsRouter(authService, commentRepository = repository) {
+function createCommentsRouter(authService, commentService = createCommentService()) {
   const router = express.Router();
   router.use(createRequireAuth(authService));
 
   router.post('/:workspaceId/projects/:projectId/comments', (request, response, next) =>
-    createComment(request, response, next, commentRepository, null));
+    createComment(request, response, next, commentService, null));
   router.get('/:workspaceId/projects/:projectId/comments', (request, response, next) =>
-    listComments(request, response, next, commentRepository, null));
+    listComments(request, response, next, commentService, null));
   router.post('/:workspaceId/projects/:projectId/tasks/:taskId/comments', (request, response, next) =>
-    createComment(request, response, next, commentRepository, request.params.taskId));
+    createComment(request, response, next, commentService, request.params.taskId));
   router.get('/:workspaceId/projects/:projectId/tasks/:taskId/comments', (request, response, next) =>
-    listComments(request, response, next, commentRepository, request.params.taskId));
+    listComments(request, response, next, commentService, request.params.taskId));
 
   router.patch('/:workspaceId/projects/:projectId/comments/:commentId', (request, response, next) =>
-    updateComment(request, response, next, commentRepository, null));
+    updateComment(request, response, next, commentService, null));
   router.delete('/:workspaceId/projects/:projectId/comments/:commentId', (request, response, next) =>
-    deleteComment(request, response, next, commentRepository, null));
+    deleteComment(request, response, next, commentService, null));
   router.patch('/:workspaceId/projects/:projectId/tasks/:taskId/comments/:commentId', (request, response, next) =>
-    updateComment(request, response, next, commentRepository, request.params.taskId));
+    updateComment(request, response, next, commentService, request.params.taskId));
   router.delete('/:workspaceId/projects/:projectId/tasks/:taskId/comments/:commentId', (request, response, next) =>
-    deleteComment(request, response, next, commentRepository, request.params.taskId));
+    deleteComment(request, response, next, commentService, request.params.taskId));
 
   return router;
 }

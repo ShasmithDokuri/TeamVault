@@ -1,9 +1,9 @@
 const express = require('express');
 const { createRequireAuth } = require('../middleware/require-auth');
-const repository = require('../activity/repository');
+const { createActivityService } = require('../services/activity');
 const { isUuid } = require('../projects/validation');
 
-function createActivityRouter(authService, activityRepository = repository) {
+function createActivityRouter(authService, activityService = createActivityService()) {
   const router = express.Router();
   router.use(createRequireAuth(authService));
   router.get('/:workspaceId/activity', async (request, response, next) => {
@@ -18,7 +18,7 @@ function createActivityRouter(authService, activityRepository = repository) {
       return response.status(400).json({ error: 'Invalid activity cursor or limit.' });
     }
     try {
-      const result = await activityRepository.listActivityForMember({
+      const result = await activityService.listActivityForMember({
         workspaceId: request.params.workspaceId, actorId: request.auth.user.id,
         limit, before,
       });

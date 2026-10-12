@@ -1,6 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const { getPool } = require('../db/pool');
-const { recordActivity } = require('../projects/repository');
+const { recordActivityInTransaction } = require('../services/activity').createActivityService();
 
 async function createComment({ workspaceId, projectId, taskId = null, actorId, content }) {
   return withTransaction(async (client) => {
@@ -15,7 +15,7 @@ async function createComment({ workspaceId, projectId, taskId = null, actorId, c
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [commentId, workspaceId, projectId, taskId, actorId, content],
     );
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId, eventType: 'comment_created', entityType: 'comment',
       entityId: commentId, projectId, taskId, commentId,
     });
@@ -81,7 +81,7 @@ async function updateComment({ workspaceId, projectId, taskId = null, commentId,
       );
       return exists.rowCount ? { kind: 'conflict' } : { kind: 'not_found' };
     }
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId, eventType: 'comment_updated', entityType: 'comment',
       entityId: commentId, projectId, taskId, commentId,
     });
@@ -105,7 +105,7 @@ async function deleteComment({ workspaceId, projectId, taskId = null, commentId,
       [workspaceId, projectId, taskId, commentId, actorId],
     );
     if (!rows[0]) return false;
-    await recordActivity(client, {
+    await recordActivityInTransaction(client, {
       workspaceId, actorId, eventType: 'comment_deleted', entityType: 'comment',
       entityId: commentId, projectId, taskId,
     });

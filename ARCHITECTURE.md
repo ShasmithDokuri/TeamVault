@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-This document describes the proposed architecture and delivery path for TeamVault. It is a design document; it does not describe features as implemented. The initial application will be a modular monolith for local development. Service separation and cloud infrastructure are later milestones, not part of the initial setup.
+This document records the current architecture and delivery path for TeamVault. The application began as a modular monolith. Milestone 7 defines in-process service APIs and module ownership boundaries while retaining one deployable application and shared PostgreSQL database; it does not introduce networked or independently deployed services.
 
 ## Product
 
@@ -18,7 +18,21 @@ The browser client will use React. It will provide the workspace-oriented interf
 
 The backend will use Node.js and Express. Initially, it will run as one deployable application organized into modules with clear responsibilities, such as authentication, workspaces and membership, projects and tasks, comments, files, notifications, and activity. Modules should interact through defined internal interfaces and share the application's PostgreSQL database. This keeps local development and early delivery straightforward while preserving boundaries that can support later extraction.
 
-The initial architecture is not a set of independently deployed services. Splitting selected modules into services is planned for a later milestone, after core behavior and module boundaries have been established. That transition will require explicit service APIs, data ownership decisions, and operational support; it will not be assumed to happen automatically.
+The application remains a single Express deployment. `src/services/create-services.js` composes the in-process APIs consumed by HTTP routes. The service interfaces are injectable, frozen objects that expose only the module operations needed by the routes. They call module repositories directly in the same process; no network or message broker is involved.
+
+#### Milestone 7 module ownership and APIs
+
+- **Authentication** (`auth`): user identity, sessions, OAuth, and authentication audit persistence. The HTTP middleware resolves the bearer token; feature APIs receive the authenticated user ID in their request arguments.
+- **Workspaces** (`workspaces`): workspace lifecycle, membership, role changes, and role/membership authorization predicates.
+- **Projects and tasks** (`projects`): project/task persistence, workspace-scoped reads and writes, assignment checks, and optimistic task versions.
+- **Comments** (`comments`): comment persistence, author/version rules, and comment authorization.
+- **Activity** (`activity`): workspace activity feed reads and the `recordActivityInTransaction(client, event)` persistence API. Event writes accept the PostgreSQL transaction client already owned by the calling operation.
+
+Routes own HTTP parsing, validation, and response mapping. Service APIs define the in-process operation boundary. Repositories own SQL and retain authorization and workspace predicates; service separation does not move tenant security out of those queries. The app composition root creates services once and injects them into routers. Tests can inject repository fakes at these boundaries, while end-to-end integration tests use the same composition with the existing local PostgreSQL database.
+
+Writes that produce activity continue to run in a single PostgreSQL transaction. The project/task or comment repository owns that transaction and invokes the activity service API with the same transaction client, so a failed activity insert rolls back the corresponding product change and vice versa. No cross-service transaction protocol is needed while modules share the database and process.
+
+This milestone creates explicit, separable module APIs and ownership boundaries, but modules are not independently deployable yet. They still share a database, process lifecycle, and runtime. Extracting a module into another process would require an explicit data ownership and consistency design, operational deployment, and a transport contract; those are not part of this milestone.
 
 ## Data and asynchronous capabilities
 

@@ -9,9 +9,13 @@ const { createWorkspaceRouter } = require('./routes/workspaces');
 const { createProjectsRouter } = require('./routes/projects');
 const { createCommentsRouter } = require('./routes/comments');
 const { createActivityRouter } = require('./routes/activity');
+const { createServices } = require('./services/create-services');
 const healthRouter = require('./routes/health');
 
-function createApp({ authService = createAuthService(userRepository, googleOAuth) } = {}) {
+function createApp({
+  authService = createAuthService(userRepository, googleOAuth),
+  services = createServices(),
+} = {}) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -23,10 +27,10 @@ function createApp({ authService = createAuthService(userRepository, googleOAuth
   app.use(express.json({ limit: '100kb' }));
   app.use('/api/health', healthRouter);
   app.use('/api/auth', createAuthRouter(authService));
-  app.use('/api/workspaces', createWorkspaceRouter(authService));
-  app.use('/api/workspaces', createProjectsRouter(authService));
-  app.use('/api/workspaces', createCommentsRouter(authService));
-  app.use('/api/workspaces', createActivityRouter(authService));
+  app.use('/api/workspaces', createWorkspaceRouter(authService, services.workspaces));
+  app.use('/api/workspaces', createProjectsRouter(authService, services.projects));
+  app.use('/api/workspaces', createCommentsRouter(authService, services.comments));
+  app.use('/api/workspaces', createActivityRouter(authService, services.activity));
 
   app.use((_request, response) => {
     response.status(404).json({ error: 'Not found' });

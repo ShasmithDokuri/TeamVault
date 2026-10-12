@@ -1,9 +1,9 @@
 const express = require('express');
 const { createRequireAuth } = require('../middleware/require-auth');
-const workspaceRepository = require('../workspaces/repository');
+const { createWorkspaceService } = require('../services/workspaces');
 const { isAssignableRole, isUuid, validateWorkspaceName } = require('../workspaces/validation');
 
-function createWorkspaceRouter(authService, repository = workspaceRepository) {
+function createWorkspaceRouter(authService, workspaceService = createWorkspaceService()) {
   const router = express.Router();
   router.use(createRequireAuth(authService));
 
@@ -12,7 +12,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
     if (!name) return response.status(400).json({ error: 'Workspace name must be 1 to 100 characters.' });
 
     try {
-      const workspace = await repository.createWorkspaceForUser({ userId: request.auth.user.id, name });
+      const workspace = await workspaceService.createWorkspaceForUser({ userId: request.auth.user.id, name });
       return response.status(201).json({ workspace });
     } catch (error) {
       return next(error);
@@ -21,7 +21,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
 
   router.get('/', async (request, response, next) => {
     try {
-      const workspaces = await repository.listWorkspacesForUser(request.auth.user.id);
+      const workspaces = await workspaceService.listWorkspacesForUser(request.auth.user.id);
       return response.status(200).json({ workspaces });
     } catch (error) {
       return next(error);
@@ -31,7 +31,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
   router.get('/:workspaceId', async (request, response, next) => {
     if (!isUuid(request.params.workspaceId)) return notFound(response);
     try {
-      const workspace = await repository.getWorkspaceForMember({
+      const workspace = await workspaceService.getWorkspaceForMember({
         workspaceId: request.params.workspaceId,
         userId: request.auth.user.id,
       });
@@ -47,7 +47,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
     if (!name) return response.status(400).json({ error: 'Workspace name must be 1 to 100 characters.' });
 
     try {
-      const workspace = await repository.updateWorkspaceForManager({
+      const workspace = await workspaceService.updateWorkspaceForManager({
         workspaceId: request.params.workspaceId,
         userId: request.auth.user.id,
         name,
@@ -61,7 +61,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
   router.delete('/:workspaceId', async (request, response, next) => {
     if (!isUuid(request.params.workspaceId)) return notFound(response);
     try {
-      const deleted = await repository.deleteWorkspaceForOwner({
+      const deleted = await workspaceService.deleteWorkspaceForOwner({
         workspaceId: request.params.workspaceId,
         userId: request.auth.user.id,
       });
@@ -74,12 +74,12 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
   router.get('/:workspaceId/members', async (request, response, next) => {
     if (!isUuid(request.params.workspaceId)) return notFound(response);
     try {
-      const members = await repository.listMembersForMember({
+      const members = await workspaceService.listMembersForMember({
         workspaceId: request.params.workspaceId,
         userId: request.auth.user.id,
       });
       if (members.length === 0) {
-        const workspace = await repository.getWorkspaceForMember({
+        const workspace = await workspaceService.getWorkspaceForMember({
           workspaceId: request.params.workspaceId,
           userId: request.auth.user.id,
         });
@@ -98,7 +98,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
       return response.status(400).json({ error: 'A valid user ID and assignable role are required.' });
     }
     try {
-      const member = await repository.addMemberForManager({
+      const member = await workspaceService.addMemberForManager({
         workspaceId: request.params.workspaceId,
         actorId: request.auth.user.id,
         userId,
@@ -117,7 +117,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
       return response.status(400).json({ error: 'Role must be admin or member.' });
     }
     try {
-      const member = await repository.updateMemberRoleForOwner({
+      const member = await workspaceService.updateMemberRoleForOwner({
         workspaceId: request.params.workspaceId,
         actorId: request.auth.user.id,
         userId: request.params.userId,
@@ -132,7 +132,7 @@ function createWorkspaceRouter(authService, repository = workspaceRepository) {
   router.delete('/:workspaceId/members/:userId', async (request, response, next) => {
     if (!isUuid(request.params.workspaceId) || !isUuid(request.params.userId)) return notFound(response);
     try {
-      const removed = await repository.removeMemberForManager({
+      const removed = await workspaceService.removeMemberForManager({
         workspaceId: request.params.workspaceId,
         actorId: request.auth.user.id,
         userId: request.params.userId,

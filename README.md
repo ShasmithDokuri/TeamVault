@@ -63,6 +63,7 @@ apps/
   api/
     src/
       routes/
+      services/
     test/
   web/
     src/
@@ -75,5 +76,11 @@ Workspace members can create and list comments on projects and tasks. Comment au
 Workspace members can read a paginated activity feed at `/api/workspaces/:workspaceId/activity`, using `limit` (1–100) and an optional `before` event ID. Project and task creation, updates, assignment changes, deletion, and comment activity write activity records in the same transaction as the change. Events contain actor and resource IDs plus changed field names; they exclude comment text, task or project text, email addresses, and credentials. Activity access is workspace-scoped and requires current membership.
 
 Migration `004_comments_activity.sql` adds workspace-scoped comment references, versioning, activity event constraints, and feed indexes. PostgreSQL 15+ remains required for column-specific `ON DELETE SET NULL` foreign keys.
+
+## Milestone 7 service boundaries
+
+The API remains a single Express application and deployment. Its app composition root creates in-process service interfaces for workspaces, projects/tasks, comments, and activity, then injects them into the routers. Authentication remains in the auth module. Routes retain input validation and HTTP response mapping; repositories retain SQL, membership/role checks, and workspace scoping. Service interfaces are injectable so tests can substitute repository dependencies, while PostgreSQL integration tests continue to exercise the full local app and database.
+
+Activity event persistence is owned by the activity module through `recordActivityInTransaction(client, event)`. Project/task and comment repositories pass their existing PostgreSQL transaction client to this service API, keeping each event atomic with its corresponding change. This milestone establishes module APIs and ownership boundaries; it does not create separately deployed services or introduce network communication. Shared process/database lifecycle is a deliberate trade-off until a later extraction has a concrete deployment and data-ownership design.
 
 Background processing, notifications, file storage, containerization, and cloud infrastructure remain planned work for their designated milestones.

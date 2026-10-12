@@ -1,6 +1,6 @@
 const express = require('express');
 const { createRequireAuth } = require('../middleware/require-auth');
-const repository = require('../projects/repository');
+const { createProjectService } = require('../services/projects');
 const {
   PROJECT_DESCRIPTION_MAX,
   PROJECT_NAME_MAX,
@@ -16,7 +16,7 @@ const {
   validateVersion,
 } = require('../projects/validation');
 
-function createProjectsRouter(authService, projectRepository = repository) {
+function createProjectsRouter(authService, projectService = createProjectService()) {
   const router = express.Router();
   router.use(createRequireAuth(authService));
 
@@ -30,7 +30,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
     if (!name.valid || !description.valid) return invalid(response);
 
     try {
-      const project = await projectRepository.createProject({
+      const project = await projectService.createProject({
         workspaceId: request.params.workspaceId,
         actorId: request.auth.user.id,
         name: name.value,
@@ -45,7 +45,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
   router.get('/:workspaceId/projects', async (request, response, next) => {
     if (!isUuid(request.params.workspaceId)) return notFound(response);
     try {
-      const result = await projectRepository.listProjectsForMember({
+      const result = await projectService.listProjectsForMember({
         workspaceId: request.params.workspaceId,
         actorId: request.auth.user.id,
       });
@@ -60,7 +60,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
   router.get('/:workspaceId/projects/:projectId', async (request, response, next) => {
     if (!validResourceIds(request)) return notFound(response);
     try {
-      const project = await projectRepository.getProjectForMember({
+      const project = await projectService.getProjectForMember({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         actorId: request.auth.user.id,
@@ -87,7 +87,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
     ) return invalid(response);
 
     try {
-      const project = await projectRepository.updateProjectForManager({
+      const project = await projectService.updateProjectForManager({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         actorId: request.auth.user.id,
@@ -103,7 +103,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
   router.delete('/:workspaceId/projects/:projectId', async (request, response, next) => {
     if (!validResourceIds(request)) return notFound(response);
     try {
-      const deleted = await projectRepository.deleteProjectForManager({
+      const deleted = await projectService.deleteProjectForManager({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         actorId: request.auth.user.id,
@@ -119,7 +119,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
     const input = validateTaskCreate(request.body);
     if (!input.valid) return invalid(response);
     try {
-      const result = await projectRepository.createTask({
+      const result = await projectService.createTask({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         actorId: request.auth.user.id,
@@ -138,7 +138,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
   router.get('/:workspaceId/projects/:projectId/tasks', async (request, response, next) => {
     if (!validResourceIds(request)) return notFound(response);
     try {
-      const result = await projectRepository.listTasksForMember({
+      const result = await projectService.listTasksForMember({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         actorId: request.auth.user.id,
@@ -154,7 +154,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
   router.get('/:workspaceId/projects/:projectId/tasks/:taskId', async (request, response, next) => {
     if (!validResourceIds(request, 'taskId')) return notFound(response);
     try {
-      const task = await projectRepository.getTaskForMember({
+      const task = await projectService.getTaskForMember({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         taskId: request.params.taskId,
@@ -171,7 +171,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
     const input = validateTaskPatch(request.body);
     if (!input.valid) return invalid(response);
     try {
-      const result = await projectRepository.updateTaskForMember({
+      const result = await projectService.updateTaskForMember({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         taskId: request.params.taskId,
@@ -193,7 +193,7 @@ function createProjectsRouter(authService, projectRepository = repository) {
   router.delete('/:workspaceId/projects/:projectId/tasks/:taskId', async (request, response, next) => {
     if (!validResourceIds(request, 'taskId')) return notFound(response);
     try {
-      const deleted = await projectRepository.deleteTaskForManager({
+      const deleted = await projectService.deleteTaskForManager({
         workspaceId: request.params.workspaceId,
         projectId: request.params.projectId,
         taskId: request.params.taskId,
