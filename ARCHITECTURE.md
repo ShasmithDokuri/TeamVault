@@ -34,6 +34,14 @@ Writes that produce activity continue to run in a single PostgreSQL transaction.
 
 This milestone creates explicit, separable module APIs and ownership boundaries, but modules are not independently deployable yet. They still share a database, process lifecycle, and runtime. Extracting a module into another process would require an explicit data ownership and consistency design, operational deployment, and a transport contract; those are not part of this milestone.
 
+### Milestone 8 event delivery
+
+Project, task, and comment activity writes also append a versioned, sanitized domain-event envelope to `outbox_events` using the caller's existing PostgreSQL transaction client. The API never waits for Kafka to commit a product operation. The outbox relay runs from the same API package as a separately invokable worker process; this is a runtime role in the modular monolith, not an independently deployed service.
+
+The relay claims pending rows with PostgreSQL leases and `FOR UPDATE SKIP LOCKED`, renews leases while sending, publishes messages keyed by workspace ID, then acknowledges only rows with a current, unexpired lease token. Transient publish failures use bounded exponential backoff; after the configured attempt limit, the durable row is marked dead-lettered and retained. Abandoned claims count as attempts and are dead-lettered after their lease expires at the limit. A worker crash after Kafka accepts a message but before the database acknowledgment can cause a duplicate. Every message has a stable event ID for consumer deduplication. Kafka producer idempotence reduces producer retry duplicates but does not provide end-to-end exactly-once delivery; downstream consumers must be idempotent. No business event consumer is introduced in this milestone.
+
+Outbox payloads contain resource and actor IDs, the event type, the activity event ID, and allowlisted changed-field metadata; they do not contain comment text, resource names or descriptions, email addresses, or credentials. Outbox rows are not foreign-key cascaded when a workspace is deleted, so pending events remain publishable; retention and manual dead-letter replay are operational follow-up work. Local API and test runs need PostgreSQL only. Running the relay requires a separately available Kafka broker and pre-created topic; the API can continue storing outbox events while the broker is unavailable.
+
 ## Data and asynchronous capabilities
 
 - **PostgreSQL** will hold persistent application data, including users, workspaces, memberships, projects, tasks, comments, notifications, and activity records.

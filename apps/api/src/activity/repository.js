@@ -4,12 +4,14 @@ async function recordActivity(client, {
   workspaceId, actorId, eventType, entityType, entityId,
   projectId = null, taskId = null, commentId = null, metadata = {},
 }) {
-  await client.query(
+  const { rows } = await client.query(
     `INSERT INTO activity_events
        (workspace_id, actor_id, event_type, entity_type, entity_id, project_id, task_id, comment_id, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+     RETURNING id::text AS id, created_at AS "createdAt"`,
     [workspaceId, actorId, eventType, entityType, entityId, projectId, taskId, commentId, JSON.stringify(metadata)],
   );
+  return rows[0];
 }
 
 async function listActivityForMember({ workspaceId, actorId, limit, before }) {

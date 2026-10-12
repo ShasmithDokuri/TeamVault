@@ -67,6 +67,7 @@ describeWithDatabase('PostgreSQL comments and activity integration', () => {
   afterAll(async () => {
     if (!pool) return;
     if (workspaceIds.length) {
+      await pool.query('DELETE FROM outbox_events WHERE workspace_id = ANY($1::uuid[])', [workspaceIds]);
       await pool.query('DELETE FROM workspaces WHERE id = ANY($1::uuid[])', [workspaceIds]);
     }
     if (userIds.length) await pool.query('DELETE FROM users WHERE id = ANY($1::uuid[])', [userIds]);
@@ -84,19 +85,21 @@ describeWithDatabase('PostgreSQL comments and activity integration', () => {
     expect(addedMember.status).toBe(201);
 
     const triggerSuffix = require('node:crypto').randomUUID().replaceAll('-', '');
-    const functionName = `m6_reject_activity_${triggerSuffix}`;
-    const triggerName = `m6_reject_activity_${triggerSuffix}`;
+    const functionName = `m8_reject_outbox_${triggerSuffix}`;
+    const triggerName = `m8_reject_outbox_${triggerSuffix}`;
     try {
       await pool.query(`CREATE FUNCTION ${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
         BEGIN
-          RAISE EXCEPTION 'forced activity failure' USING ERRCODE = '23514';
+          RAISE EXCEPTION 'forced outbox failure' USING ERRCODE = '23514';
           RETURN NEW;
         END
       $$`);
-      await pool.query(`CREATE TRIGGER ${triggerName} BEFORE INSERT ON activity_events
+      await pool.query(`CREATE TRIGGER ${triggerName} BEFORE INSERT ON outbox_events
         FOR EACH ROW EXECUTE FUNCTION ${functionName}()`);
       const beforeFailure = await pool.query(
-        'SELECT (SELECT COUNT(*) FROM projects WHERE workspace_id = $1) AS project_count, (SELECT COUNT(*) FROM activity_events WHERE workspace_id = $1) AS event_count',
+        `SELECT (SELECT COUNT(*) FROM projects WHERE workspace_id = $1) AS project_count,
+                (SELECT COUNT(*) FROM activity_events WHERE workspace_id = $1) AS activity_count,
+                (SELECT COUNT(*) FROM outbox_events WHERE workspace_id = $1) AS outbox_count`,
         [workspaceId],
       );
       const failedCreate = await request(app).post(`${wsPath(workspaceId)}/projects`).set(auth('owner'))
@@ -104,12 +107,14 @@ describeWithDatabase('PostgreSQL comments and activity integration', () => {
       expect(failedCreate.status).toBe(500);
       expect(failedCreate.body).toEqual({ error: 'Internal server error' });
       const afterFailure = await pool.query(
-        'SELECT (SELECT COUNT(*) FROM projects WHERE workspace_id = $1) AS project_count, (SELECT COUNT(*) FROM activity_events WHERE workspace_id = $1) AS event_count',
+        `SELECT (SELECT COUNT(*) FROM projects WHERE workspace_id = $1) AS project_count,
+                (SELECT COUNT(*) FROM activity_events WHERE workspace_id = $1) AS activity_count,
+                (SELECT COUNT(*) FROM outbox_events WHERE workspace_id = $1) AS outbox_count`,
         [workspaceId],
       );
       expect(afterFailure.rows[0]).toEqual(beforeFailure.rows[0]);
     } finally {
-      await pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON activity_events`);
+      await pool.query(`DROP TRIGGER IF EXISTS ${triggerName} ON outbox_events`);
       await pool.query(`DROP FUNCTION IF EXISTS ${functionName}()`);
     }
 
@@ -117,6 +122,13 @@ describeWithDatabase('PostgreSQL comments and activity integration', () => {
       .send({ name: 'Project discussion' });
     expect(projectResponse.status).toBe(201);
     const projectId = projectResponse.body.project.id;
+    const projectOutbox = await pool.query(
+      `SELECT event_type, payload FROM outbox_events
+       WHERE workspace_id = $1 AND event_type = 'project_created' AND payload->'entity'->>'id' = $2`,
+      [workspaceId, projectId],
+    );
+    expect(projectOutbox.rowCount).toBe(1);
+    expect(JSON.stringify(projectOutbox.rows[0].payload)).not.toContain('Project discussion');
     expect((await request(app).patch(`${wsPath(workspaceId)}/projects/${projectId}`).set(auth('owner'))
       .send({ name: 'Project discussion updated' })).status).toBe(200);
     const taskResponse = await request(app)

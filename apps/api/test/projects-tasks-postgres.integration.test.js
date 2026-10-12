@@ -82,6 +82,7 @@ describeWithDatabase('PostgreSQL projects and tasks integration', () => {
   afterAll(async () => {
     if (pool) {
       if (workspaceIds.length > 0) {
+        await pool.query('DELETE FROM outbox_events WHERE workspace_id = ANY($1::uuid[])', [workspaceIds]);
         await pool.query('DELETE FROM workspaces WHERE id = ANY($1::uuid[])', [workspaceIds]);
       }
       if (userIds.length > 0) {

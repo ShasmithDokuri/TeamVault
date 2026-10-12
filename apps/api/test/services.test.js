@@ -21,29 +21,46 @@ describe('service boundaries', () => {
   test('project, comment, and activity service methods delegate to their owning repositories', async () => {
     const projectRepository = { updateTaskForMember: jest.fn(async () => ({ kind: 'updated' })) };
     const commentRepository = { createComment: jest.fn(async () => ({ id: 'comment-1' })) };
+    const transactionClient = { query: jest.fn() };
     const activityRepository = {
       listActivityForMember: jest.fn(async () => ({ authorized: true, events: [] })),
-      recordActivity: jest.fn(async () => undefined),
+      recordActivity: jest.fn(async () => ({ id: '27', createdAt: new Date('2026-10-12T10:00:00.000Z') })),
     };
+    const outboxRepository = { enqueueEvent: jest.fn(async () => undefined) };
     const projects = createProjectService(projectRepository);
     const comments = createCommentService(commentRepository);
-    const activity = createActivityService(activityRepository);
+    const activity = createActivityService(activityRepository, outboxRepository);
 
     await expect(projects.updateTaskForMember({ taskId: 'task-1' })).resolves.toEqual({ kind: 'updated' });
     await expect(comments.createComment({ content: 'hello' })).resolves.toEqual({ id: 'comment-1' });
     await expect(activity.listActivityForMember({ workspaceId: 'workspace-1' }))
       .resolves.toEqual({ authorized: true, events: [] });
-    const transactionClient = { query: jest.fn() };
-    await activity.recordActivityInTransaction(transactionClient, { eventType: 'task_updated' });
+    await activity.recordActivityInTransaction(transactionClient, {
+      workspaceId: 'workspace-1', actorId: 'user-1', eventType: 'task_updated',
+      entityType: 'task', entityId: 'task-1', projectId: 'project-1',
+      metadata: { changedFields: ['status', 'commentContent'], note: 'private text' },
+    });
     expect(projectRepository.updateTaskForMember).toHaveBeenCalledWith({ taskId: 'task-1' });
     expect(commentRepository.createComment).toHaveBeenCalledWith({ content: 'hello' });
     expect(activityRepository.listActivityForMember).toHaveBeenCalledWith({ workspaceId: 'workspace-1' });
-    expect(activityRepository.recordActivity).toHaveBeenCalledWith(transactionClient, { eventType: 'task_updated' });
+    expect(activityRepository.recordActivity).toHaveBeenCalledWith(transactionClient, expect.objectContaining({
+      workspaceId: 'workspace-1', actorId: 'user-1', eventType: 'task_updated', entityId: 'task-1',
+    }));
+    expect(outboxRepository.enqueueEvent).toHaveBeenCalledWith(transactionClient, expect.objectContaining({
+      workspaceId: 'workspace-1',
+      eventType: 'task_updated',
+      payload: expect.objectContaining({
+        id: expect.any(String), activityEventId: '27', schemaVersion: 1,
+        workspaceId: 'workspace-1', actorId: 'user-1',
+        entity: { type: 'task', id: 'task-1', projectId: 'project-1', taskId: null, commentId: null },
+        metadata: { changedFields: ['status'] },
+      }),
+    }));
 
     const rejectedActivityRepository = {
       recordActivity: jest.fn(async () => { throw new Error('write rejected'); }),
     };
-    const rejectingActivity = createActivityService(rejectedActivityRepository);
+    const rejectingActivity = createActivityService(rejectedActivityRepository, outboxRepository);
     await expect(rejectingActivity.recordActivityInTransaction(transactionClient, { eventType: 'task_updated' }))
       .rejects.toThrow('write rejected');
     expect(rejectedActivityRepository.recordActivity).toHaveBeenCalledWith(

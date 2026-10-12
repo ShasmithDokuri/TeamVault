@@ -83,4 +83,12 @@ The API remains a single Express application and deployment. Its app composition
 
 Activity event persistence is owned by the activity module through `recordActivityInTransaction(client, event)`. Project/task and comment repositories pass their existing PostgreSQL transaction client to this service API, keeping each event atomic with its corresponding change. This milestone establishes module APIs and ownership boundaries; it does not create separately deployed services or introduce network communication. Shared process/database lifecycle is a deliberate trade-off until a later extraction has a concrete deployment and data-ownership design.
 
+## Milestone 8 Kafka outbox and relay
+
+Project, task, and comment activity writes now create a sanitized domain event in PostgreSQL's `outbox_events` table inside the same transaction as the corresponding change and activity-feed row. The API does not need Kafka available to accept these writes. The outbox relay is a worker entry point in the same API package, not a separate service deployment.
+
+After applying migrations, configure a local Kafka broker and pre-create the `teamvault.domain-events` topic before running `npm run worker:outbox --workspace @teamvault/api`. Set `KAFKA_BROKERS` to comma-separated `host:port` values. Optional SASL credentials use environment variables and require `KAFKA_SSL=true`; do not put real credentials in `.env.example`. The API itself does not connect to Kafka. No Docker broker setup is included in this milestone.
+
+The relay claims rows with expiring leases, renews them while sending, uses per-workspace Kafka keys, and retries failures with bounded exponential backoff. After 12 attempts by default, an event remains in the outbox marked for dead-letter review; abandoned worker claims count toward this limit and are dead-lettered when their lease expires. The payload is retained. A crash after Kafka accepts a message but before its database acknowledgment can cause redelivery. Messages have stable event IDs, and any future consumer must deduplicate by that ID. Kafka producer idempotence helps with broker-level retries but does not make database-to-Kafka delivery exactly once. Published and dead-lettered outbox rows currently have no retention or replay tooling.
+
 Background processing, notifications, file storage, containerization, and cloud infrastructure remain planned work for their designated milestones.
