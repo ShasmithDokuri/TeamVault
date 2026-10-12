@@ -4,6 +4,11 @@ function errorHandler(error, _request, response, next) {
     return;
   }
 
+  if (error.code === 'SERVICE_UNAVAILABLE') {
+    response.status(503).json({ error: 'Authentication service unavailable' });
+    return;
+  }
+
   const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
     ? error.status
     : 500;
