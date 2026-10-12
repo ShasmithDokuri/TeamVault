@@ -16,7 +16,7 @@ const {
   validateVersion,
 } = require('../projects/validation');
 
-function createProjectsRouter(authService, projectService = createProjectService()) {
+function createProjectsRouter(authService, projectService = createProjectService(), realtimeHub) {
   const router = express.Router();
   router.use(createRequireAuth(authService));
 
@@ -36,7 +36,9 @@ function createProjectsRouter(authService, projectService = createProjectService
         name: name.value,
         description: description.value,
       });
-      return project ? response.status(201).json({ project }) : notFound(response);
+      if (!project) return notFound(response);
+      publish(realtimeHub, request.params.workspaceId, 'project', project.id, 'created');
+      return response.status(201).json({ project });
     } catch (error) {
       return next(error);
     }
@@ -65,7 +67,9 @@ function createProjectsRouter(authService, projectService = createProjectService
         projectId: request.params.projectId,
         actorId: request.auth.user.id,
       });
-      return project ? response.status(200).json({ project }) : notFound(response);
+      if (!project) return notFound(response);
+      publish(realtimeHub, request.params.workspaceId, 'project', project.id, 'updated');
+      return response.status(200).json({ project });
     } catch (error) {
       return next(error);
     }
@@ -108,7 +112,9 @@ function createProjectsRouter(authService, projectService = createProjectService
         projectId: request.params.projectId,
         actorId: request.auth.user.id,
       });
-      return deleted ? response.status(204).end() : notFound(response);
+      if (!deleted) return notFound(response);
+      publish(realtimeHub, request.params.workspaceId, 'project', request.params.projectId, 'deleted');
+      return response.status(204).end();
     } catch (error) {
       return next(error);
     }
@@ -129,6 +135,7 @@ function createProjectsRouter(authService, projectService = createProjectService
       if (result.kind === 'invalid_assignee') {
         return response.status(400).json({ error: 'Assignee must be a member of this workspace.' });
       }
+      publish(realtimeHub, request.params.workspaceId, 'task', result.task.id, 'created');
       return response.status(201).json({ task: result.task });
     } catch (error) {
       return next(error);
@@ -184,6 +191,7 @@ function createProjectsRouter(authService, projectService = createProjectService
       if (result.kind === 'invalid_assignee') {
         return response.status(400).json({ error: 'Assignee must be a member of this workspace.' });
       }
+      publish(realtimeHub, request.params.workspaceId, 'task', result.task.id, 'updated');
       return response.status(200).json({ task: result.task });
     } catch (error) {
       return next(error);
@@ -199,13 +207,19 @@ function createProjectsRouter(authService, projectService = createProjectService
         taskId: request.params.taskId,
         actorId: request.auth.user.id,
       });
-      return deleted ? response.status(204).end() : notFound(response);
+      if (!deleted) return notFound(response);
+      publish(realtimeHub, request.params.workspaceId, 'task', request.params.taskId, 'deleted');
+      return response.status(204).end();
     } catch (error) {
       return next(error);
     }
   });
 
   return router;
+}
+
+function publish(realtimeHub, workspaceId, resourceType, resourceId, action) {
+  if (realtimeHub) void realtimeHub.publishWorkspaceEvent({ workspaceId, resourceType, resourceId, action }).catch(() => {});
 }
 
 function validateTaskCreate(body) {

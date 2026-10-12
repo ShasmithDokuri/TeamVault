@@ -81,6 +81,10 @@ function createAuthService(repository, googleConfig = {}, injectedGoogleClient) 
       return repository.findUserBySessionTokenHash(hashSessionToken(token));
     },
 
+    async authenticateSessionHash(tokenHash) {
+      return repository.findUserBySessionTokenHash(tokenHash);
+    },
+
     async logout(token, userId) {
       await repository.revokeSessionAndAudit({ tokenHash: hashSessionToken(token), userId });
     },

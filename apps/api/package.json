@@ -8,20 +8,25 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "db:migrate": "node --env-file-if-exists=.env src/db/migrate.js",
     "worker:outbox": "node --env-file-if-exists=.env src/workers/outbox-publisher.js",
-    "build": "node --check src/config.js && node --check src/middleware/error-handler.js && node --check src/middleware/require-auth.js && node --check src/auth/passwords.js && node --check src/auth/tokens.js && node --check src/auth/validation.js && node --check src/auth/user-repository.js && node --check src/auth/service.js && node --check src/db/pool.js && node --check src/db/migrate.js && node --check src/routes/health.js && node --check src/routes/auth.js && node --check src/workspaces/validation.js && node --check src/workspaces/repository.js && node --check src/services/workspaces.js && node --check src/routes/workspaces.js && node --check src/projects/validation.js && node --check src/projects/repository.js && node --check src/services/projects.js && node --check src/routes/projects.js && node --check src/comments/repository.js && node --check src/services/comments.js && node --check src/activity/repository.js && node --check src/services/activity.js && node --check src/services/create-services.js && node --check src/outbox/config.js && node --check src/outbox/repository.js && node --check src/services/outbox-publisher.js && node --check src/workers/outbox-publisher.js && node --check src/files/config.js && node --check src/files/validation.js && node --check src/files/object-store.js && node --check src/files/repository.js && node --check src/services/files.js && node --check src/routes/files.js && node --check src/routes/comments.js && node --check src/routes/activity.js && node --check src/app.js && node --check src/server.js",
+    "build": "node --check src/config.js && node --check src/middleware/error-handler.js && node --check src/middleware/require-auth.js && node --check src/auth/passwords.js && node --check src/auth/tokens.js && node --check src/auth/validation.js && node --check src/auth/user-repository.js && node --check src/auth/service.js && node --check src/db/pool.js && node --check src/db/migrate.js && node --check src/routes/health.js && node --check src/routes/auth.js && node --check src/workspaces/validation.js && node --check src/workspaces/repository.js && node --check src/services/workspaces.js && node --check src/routes/workspaces.js && node --check src/projects/validation.js && node --check src/projects/repository.js && node --check src/services/projects.js && node --check src/routes/projects.js && node --check src/comments/repository.js && node --check src/services/comments.js && node --check src/activity/repository.js && node --check src/services/activity.js && node --check src/services/create-services.js && node --check src/outbox/config.js && node --check src/outbox/repository.js && node --check src/services/outbox-publisher.js && node --check src/workers/outbox-publisher.js && node --check src/files/config.js && node --check src/files/validation.js && node --check src/files/object-store.js && node --check src/files/repository.js && node --check src/services/files.js && node --check src/routes/files.js && node --check src/routes/comments.js && node --check src/routes/activity.js && node --check src/realtime/config.js && node --check src/realtime/redis.js && node --check src/realtime/hub.js && node --check src/app.js && node --check src/server.js",
     "test": "jest --runInBand"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1150.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "express-rate-limit": "^8.7.1",
     "google-auth-library": "^10.9.1",
     "kafkajs": "^2.2.4",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "rate-limit-redis": "^6.0.1",
+    "redis": "^6.3.0",
+    "socket.io": "^4.8.4"
   },
   "devDependencies": {
     "jest": "^30.2.0",
+    "socket.io-client": "^4.8.4",
     "supertest": "^7.1.4"
   }
 }

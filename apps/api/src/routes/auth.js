@@ -5,12 +5,14 @@ const { createRequireAuth } = require('../middleware/require-auth');
 const { DuplicateAccountError } = require('../auth/user-repository');
 const { validateCredentials } = require('../auth/validation');
 
-function createAuthRouter(authService) {
+function createAuthRouter(authService, { rateLimitStore, realtimeHub } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth(authService);
   const authAttemptLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     limit: 10,
+    ...(rateLimitStore ? { store: rateLimitStore } : {}),
+    passOnStoreError: true,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     message: { error: 'Too many authentication attempts. Try again later.' },
@@ -51,6 +53,7 @@ function createAuthRouter(authService) {
   router.post('/logout', requireAuth, async (request, response, next) => {
     try {
       await authService.logout(request.auth.token, request.auth.user.id);
+      if (realtimeHub) void realtimeHub.disconnectUser(request.auth.user.id).catch(() => {});
       return response.status(204).end();
     } catch (error) {
       return next(error);

@@ -12,7 +12,7 @@ TeamVault is planned as a secure, multi-tenant collaboration platform. Teams wil
 
 ### Frontend
 
-The browser client will use React. It will provide the workspace-oriented interface for collaboration features and communicate with the backend through authenticated APIs. Later, it may receive live notifications and updates through Socket.IO.
+The browser client will use React. It will provide the workspace-oriented interface for collaboration features and communicate with the backend through authenticated APIs. Socket.IO provides best-effort live resource-change hints; PostgreSQL-backed APIs remain authoritative.
 
 ### Backend: modular monolith first
 
@@ -45,12 +45,12 @@ Outbox payloads contain resource and actor IDs, the event type, the activity eve
 ## Data and asynchronous capabilities
 
 - **PostgreSQL** will hold persistent application data, including users, workspaces, memberships, projects, tasks, comments, notifications, and activity records.
-- **Redis** is planned for caching, rate limiting, and presence where those capabilities are introduced. PostgreSQL remains the source of truth for persistent product records.
+- **Redis** is optional for shared authentication rate limits and cross-instance Socket.IO room coordination. PostgreSQL remains the source of truth; when Redis is unavailable, database operations continue and those capabilities fall back to per-process behavior. During an outage, auth attempt limits are per process and therefore provide a weaker aggregate cap across instances. The Socket.IO adapter carries an internal session verifier only between trusted application instances; Redis requires network isolation, TLS, and least-privilege ACLs.
 - **Amazon S3** stores private project/task files. Access is mediated by authenticated API operations; objects receive no public ACL and the bucket must block public access.
 - **Kafka** receives sanitized domain events through the PostgreSQL outbox relay. Future consumers can support asynchronous work such as notification delivery and other background processing.
-- **Socket.IO** will provide notifications and live updates in a later milestone. Connections and subscriptions will be authorized against the user's workspace access.
+- **Socket.IO** provides workspace-scoped live resource-change hints. Connections authenticate with a current opaque session token, subscriptions are checked against PostgreSQL membership, and recipients are rechecked before delivery. Event payloads contain resource identifiers only; clients reload details through authorized APIs.
 
-Redis and Socket.IO remain later capabilities. Kafka and the private S3 file flow are implemented in the milestones described below; local tests use injected doubles and do not require cloud resources.
+Kafka and the private S3 file flow are implemented in the milestones described below; local tests use injected doubles and do not require cloud resources. Socket.IO hints are best-effort, contain no replay cursor, and may be missed while a client is disconnected; clients reload state from PostgreSQL-backed APIs after reconnecting. Redis is optional for local development and is not required to run API tests.
 
 ### Milestone 9 private files
 
