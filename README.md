@@ -68,4 +68,12 @@ apps/
     src/
 ```
 
-Comments, activity feeds, background processing, files, containerization, and cloud infrastructure remain planned work for their designated milestones.
+## Milestone 6 comments and activity
+
+Workspace members can create and list comments on projects and tasks. Comment authors can edit their comments using the returned version; owners and admins can delete any comment, while authors can delete their own. Removing a workspace member clears their comment author attribution while preserving the comment history.
+
+Workspace members can read a paginated activity feed at `/api/workspaces/:workspaceId/activity`, using `limit` (1–100) and an optional `before` event ID. Project and task creation, updates, assignment changes, deletion, and comment activity write activity records in the same transaction as the change. Events contain actor and resource IDs plus changed field names; they exclude comment text, task or project text, email addresses, and credentials. Activity access is workspace-scoped and requires current membership.
+
+Migration `004_comments_activity.sql` adds workspace-scoped comment references, versioning, activity event constraints, and feed indexes. PostgreSQL 15+ remains required for column-specific `ON DELETE SET NULL` foreign keys.
+
+Background processing, notifications, file storage, containerization, and cloud infrastructure remain planned work for their designated milestones.

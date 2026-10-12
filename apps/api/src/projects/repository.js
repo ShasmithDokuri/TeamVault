@@ -3,7 +3,9 @@ const { getPool } = require('../db/pool');
 
 async function createProject({ workspaceId, actorId, name, description }) {
   try {
-    const { rows } = await getPool().query(
+    return await withTransaction(async (client) => {
+      if (!await lockWorkspaceForActivity(client, workspaceId)) return null;
+      const { rows } = await client.query(
       `INSERT INTO projects (id, workspace_id, name, description)
        SELECT $3, workspace.id, $4, $5
        FROM workspaces AS workspace
@@ -14,7 +16,13 @@ async function createProject({ workspaceId, actorId, name, description }) {
                  created_at AS "createdAt", updated_at AS "updatedAt"`,
       [workspaceId, actorId, randomUUID(), name, description],
     );
-    return rows[0] ?? null;
+      if (!rows[0]) return null;
+      await recordActivity(client, {
+        workspaceId, actorId, eventType: 'project_created', entityType: 'project',
+        entityId: rows[0].id, projectId: rows[0].id,
+      });
+      return rows[0];
+    });
   } catch (error) {
     if (error.code === '23503') return null;
     throw error;
@@ -52,7 +60,9 @@ async function getProjectForMember({ workspaceId, projectId, actorId }) {
 }
 
 async function updateProjectForManager({ workspaceId, projectId, actorId, name, description }) {
-  const { rows } = await getPool().query(
+  return withTransaction(async (client) => {
+    if (!await lockWorkspaceForActivity(client, workspaceId)) return null;
+    const { rows } = await client.query(
     `UPDATE projects AS target
      SET name = CASE WHEN $4::boolean THEN $5::text ELSE target.name END,
          description = CASE WHEN $6::boolean THEN $7::text ELSE target.description END,
@@ -67,11 +77,20 @@ async function updateProjectForManager({ workspaceId, projectId, actorId, name, 
                target.created_at AS "createdAt", target.updated_at AS "updatedAt"`,
     [workspaceId, projectId, actorId, name.provided, name.value, description.provided, description.value],
   );
-  return rows[0] ?? null;
+    if (!rows[0]) return null;
+    await recordActivity(client, {
+      workspaceId, actorId, eventType: 'project_updated', entityType: 'project',
+      entityId: rows[0].id, projectId: rows[0].id,
+      metadata: { changedFields: [name.provided && 'name', description.provided && 'description'].filter(Boolean) },
+    });
+    return rows[0];
+  });
 }
 
 async function deleteProjectForManager({ workspaceId, projectId, actorId }) {
-  const { rows } = await getPool().query(
+  return withTransaction(async (client) => {
+    if (!await lockWorkspaceForActivity(client, workspaceId)) return false;
+    const { rows } = await client.query(
     `DELETE FROM projects AS target
      WHERE target.workspace_id = $1 AND target.id = $2
        AND EXISTS (
@@ -82,11 +101,18 @@ async function deleteProjectForManager({ workspaceId, projectId, actorId }) {
      RETURNING target.id`,
     [workspaceId, projectId, actorId],
   );
-  return rows.length > 0;
+    if (!rows[0]) return false;
+    await recordActivity(client, {
+      workspaceId, actorId, eventType: 'project_deleted', entityType: 'project',
+      entityId: rows[0].id,
+    });
+    return true;
+  });
 }
 
 async function createTask({ workspaceId, projectId, actorId, task }) {
   return withTransaction(async (client) => {
+    if (!await lockWorkspaceForActivity(client, workspaceId)) return { kind: 'not_found' };
     const project = await client.query(
       `SELECT target.id
        FROM projects AS target
@@ -117,6 +143,10 @@ async function createTask({ workspaceId, projectId, actorId, task }) {
       [randomUUID(), workspaceId, projectId, task.title, task.description, task.status,
         task.priority, task.assigneeId, actorId, task.dueDate],
     );
+    await recordActivity(client, {
+      workspaceId, actorId, eventType: 'task_created', entityType: 'task',
+      entityId: rows[0].id, projectId, taskId: rows[0].id,
+    });
     return { kind: 'created', task: rows[0] };
   });
 }
@@ -162,8 +192,9 @@ async function getTaskForMember({ workspaceId, projectId, taskId, actorId }) {
 
 async function updateTaskForMember({ workspaceId, projectId, taskId, actorId, expectedVersion, changes }) {
   return withTransaction(async (client) => {
+    if (!await lockWorkspaceForActivity(client, workspaceId)) return { kind: 'not_found' };
     const current = await client.query(
-      `SELECT task.id, task.version
+      `SELECT task.id, task.version, task.assignee_id AS "assigneeId"
        FROM tasks AS task
        JOIN workspace_members AS actor ON actor.workspace_id = task.workspace_id
        WHERE task.workspace_id = $1 AND task.project_id = $2 AND task.id = $3
@@ -182,7 +213,7 @@ async function updateTaskForMember({ workspaceId, projectId, taskId, actorId, ex
     }
 
     const locked = await client.query(
-      `SELECT task.id, task.version
+      `SELECT task.id, task.version, task.assignee_id AS "assigneeId"
        FROM tasks AS task
        JOIN workspace_members AS actor ON actor.workspace_id = task.workspace_id
        WHERE task.workspace_id = $1 AND task.project_id = $2 AND task.id = $3
@@ -218,12 +249,26 @@ async function updateTaskForMember({ workspaceId, projectId, taskId, actorId, ex
         changes.assigneeId.provided, changes.assigneeId.value,
         changes.dueDate.provided, changes.dueDate.value],
     );
-    return rows[0] ? { kind: 'updated', task: rows[0] } : { kind: 'conflict' };
+    if (!rows[0]) return { kind: 'conflict' };
+    const changedFields = Object.entries(changes)
+      .filter(([, change]) => change.provided)
+      .map(([field]) => field);
+    const assignmentChanged = changes.assigneeId.provided
+      && changes.assigneeId.value !== locked.rows[0].assigneeId;
+    await recordActivity(client, {
+      workspaceId, actorId,
+      eventType: assignmentChanged ? 'task_assigned' : 'task_updated',
+      entityType: 'task', entityId: rows[0].id, projectId, taskId: rows[0].id,
+      metadata: { changedFields },
+    });
+    return { kind: 'updated', task: rows[0] };
   });
 }
 
 async function deleteTaskForManager({ workspaceId, projectId, taskId, actorId }) {
-  const { rows } = await getPool().query(
+  return withTransaction(async (client) => {
+    if (!await lockWorkspaceForActivity(client, workspaceId)) return false;
+    const { rows } = await client.query(
     `DELETE FROM tasks AS target
      WHERE target.workspace_id = $1 AND target.project_id = $2 AND target.id = $3
        AND EXISTS (
@@ -234,7 +279,33 @@ async function deleteTaskForManager({ workspaceId, projectId, taskId, actorId })
      RETURNING target.id`,
     [workspaceId, projectId, taskId, actorId],
   );
-  return rows.length > 0;
+    if (!rows[0]) return false;
+    await recordActivity(client, {
+      workspaceId, actorId, eventType: 'task_deleted', entityType: 'task',
+      entityId: rows[0].id, projectId,
+    });
+    return true;
+  });
+}
+
+async function recordActivity(client, {
+  workspaceId, actorId, eventType, entityType, entityId,
+  projectId = null, taskId = null, commentId = null, metadata = {},
+}) {
+  await client.query(
+    `INSERT INTO activity_events
+       (workspace_id, actor_id, event_type, entity_type, entity_id, project_id, task_id, comment_id, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+    [workspaceId, actorId, eventType, entityType, entityId, projectId, taskId, commentId, JSON.stringify(metadata)],
+  );
+}
+
+async function lockWorkspaceForActivity(client, workspaceId) {
+  const result = await client.query(
+    'SELECT id FROM workspaces WHERE id = $1 FOR KEY SHARE',
+    [workspaceId],
+  );
+  return result.rowCount > 0;
 }
 
 async function withTransaction(work) {
@@ -265,6 +336,7 @@ module.exports = {
   getTaskForMember,
   listProjectsForMember,
   listTasksForMember,
+  recordActivity,
   updateProjectForManager,
   updateTaskForMember,
 };
