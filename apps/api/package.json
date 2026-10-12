@@ -7,7 +7,7 @@
     "dev": "node --watch --env-file-if-exists=.env src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
     "db:migrate": "node --env-file-if-exists=.env src/db/migrate.js",
-    "build": "node --check src/config.js && node --check src/middleware/error-handler.js && node --check src/middleware/require-auth.js && node --check src/auth/passwords.js && node --check src/auth/tokens.js && node --check src/auth/validation.js && node --check src/auth/user-repository.js && node --check src/auth/service.js && node --check src/db/pool.js && node --check src/db/migrate.js && node --check src/routes/health.js && node --check src/routes/auth.js && node --check src/workspaces/validation.js && node --check src/workspaces/repository.js && node --check src/routes/workspaces.js && node --check src/app.js && node --check src/server.js",
+    "build": "node --check src/config.js && node --check src/middleware/error-handler.js && node --check src/middleware/require-auth.js && node --check src/auth/passwords.js && node --check src/auth/tokens.js && node --check src/auth/validation.js && node --check src/auth/user-repository.js && node --check src/auth/service.js && node --check src/db/pool.js && node --check src/db/migrate.js && node --check src/routes/health.js && node --check src/routes/auth.js && node --check src/workspaces/validation.js && node --check src/workspaces/repository.js && node --check src/routes/workspaces.js && node --check src/projects/validation.js && node --check src/projects/repository.js && node --check src/routes/projects.js && node --check src/app.js && node --check src/server.js",
     "test": "jest --runInBand"
   },
   "dependencies": {

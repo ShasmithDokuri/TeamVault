@@ -6,6 +6,7 @@ const userRepository = require('./auth/user-repository');
 const errorHandler = require('./middleware/error-handler');
 const { createAuthRouter } = require('./routes/auth');
 const { createWorkspaceRouter } = require('./routes/workspaces');
+const { createProjectsRouter } = require('./routes/projects');
 const healthRouter = require('./routes/health');
 
 function createApp({ authService = createAuthService(userRepository, googleOAuth) } = {}) {
@@ -21,6 +22,7 @@ function createApp({ authService = createAuthService(userRepository, googleOAuth
   app.use('/api/health', healthRouter);
   app.use('/api/auth', createAuthRouter(authService));
   app.use('/api/workspaces', createWorkspaceRouter(authService));
+  app.use('/api/workspaces', createProjectsRouter(authService));
 
   app.use((_request, response) => {
     response.status(404).json({ error: 'Not found' });

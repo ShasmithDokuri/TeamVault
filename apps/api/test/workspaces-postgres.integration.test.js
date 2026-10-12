@@ -234,7 +234,7 @@ describeWithDatabase('PostgreSQL workspace authorization integration', () => {
     try {
       await truncateClient.query('BEGIN');
       try {
-        await truncateClient.query('TRUNCATE workspace_members');
+        await truncateClient.query('TRUNCATE workspace_members CASCADE');
       } catch (error) {
         truncateError = error;
       }

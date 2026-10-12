@@ -26,6 +26,12 @@ Authenticated users can create and list workspaces, read a workspace they belong
 
 Workspace and membership reads and writes bind both the workspace ID and the authenticated user ID in SQL authorization predicates. Nonmembers and callers without the required role receive the same not-found response, which avoids exposing whether another workspace or member exists. The migration enforces valid roles, workspace/user foreign keys, exactly one owner per workspace, and unique membership per user and workspace. PostgreSQL integration tests use the isolated `teamvault_m3_review` database, apply all numbered migrations, and leave uniquely identified fixtures in place without resetting database contents.
 
+## Milestone 5 projects and tasks
+
+Projects are available at `/api/workspaces/:workspaceId/projects`; tasks are nested under `/api/workspaces/:workspaceId/projects/:projectId/tasks`. Workspace members can read projects and tasks. Owners and admins can create, update, and delete projects and delete tasks. All members can create and update tasks. Project names and task titles are required; task status is `todo`, `in_progress`, or `done`, and priority is `low`, `medium`, `high`, or `urgent`. Task updates require the current integer `version`; stale updates return `409` so concurrent edits do not silently overwrite each other. Task assignees must be current members of the project workspace; removing a member clears their task assignments.
+
+Migration `003_projects_tasks.sql` scopes task-project references and task assignees with composite foreign keys, and indexes workspace/project task lists and assignments. PostgreSQL integration tests use generated fixture IDs and remove only their own workspaces and users after the test. PostgreSQL 15 or newer is required for the composite assignee foreign key's column-specific `ON DELETE SET NULL` behavior.
+
 ## Known dependency advisory
 
 The development dependency tree currently reports 19 moderate `sprintf-js` advisories through Jest. The available `npm audit fix --force` recommendation downgrades Jest to v25, so the dependency has been left unchanged for a compatible fix review. The production dependency audit reports zero vulnerabilities.
@@ -34,6 +40,7 @@ The development dependency tree currently reports 19 moderate `sprintf-js` advis
 
 - Node.js 20.19+ or 22.12+
 - npm 10+
+- PostgreSQL 15+
 
 ## Local development
 
@@ -61,4 +68,4 @@ apps/
     src/
 ```
 
-Projects, tasks, collaboration features, background processing, files, containerization, and cloud infrastructure remain planned work for their designated milestones.
+Comments, activity feeds, background processing, files, containerization, and cloud infrastructure remain planned work for their designated milestones.
