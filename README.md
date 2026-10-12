@@ -104,3 +104,21 @@ Authenticated workspace members can attach files to projects or tasks using the 
 Configure `AWS_REGION` and `S3_BUCKET` to enable S3 operations. The SDK uses the standard AWS credential provider chain (such as a local profile or an instance/workload role); do not add static AWS credentials to `.env.example` or commit them. Keep S3 Block Public Access enabled and use a bucket policy that denies public access. Without both storage settings, file upload/download/delete calls return an unavailable response; API startup and PostgreSQL tests do not require AWS. No live S3 call or AWS resource provisioning is part of local verification.
 
 Migration `006_private_files.sql` adds workspace/project/task-scoped metadata and lifecycle states. Failed uploads return a file ID and can be retried with `PUT /api/workspaces/:workspaceId/projects/:projectId/files/:fileId/content` (or the nested task path). Each retry gets a fresh object key and an abandoned pending upload can be reclaimed after five minutes; active uploads renew their database lease. At most four uploads per API process are buffered concurrently by default. Delete failures preserve a retryable metadata state. Project, task, or workspace deletion is rejected while attachments remain; delete attachments first. Existing integration tests use generated users/workspaces and a fake S3 adapter, then clean up only their own rows.
+
+## Milestone 11 Docker Compose development
+
+The local container stack runs the API, static frontend, PostgreSQL 16, and Redis 7. The frontend container serves the built React app through an unprivileged Nginx process and proxies `/api` and `/socket.io` to the API. The API image runs as the unprivileged Node user and installs production dependencies from `package-lock.json`. PostgreSQL and Redis data use Milestone 11-specific named Docker volumes (`teamvault-m11-local_postgres-data` and `teamvault-m11-local_redis-data`) and survive normal `docker compose down` operations.
+
+Requirements: Docker Desktop with Docker Compose v2. From the repository root, copy `.env.example` to `.env`, change the example PostgreSQL password to a unique local-only value, then run:
+
+```sh
+cp .env.example .env
+# Edit .env and set POSTGRES_PASSWORD to a unique, URL-safe local development password.
+docker compose up --build
+```
+
+Open <http://localhost:8080>. The API is available through the same origin at `/api`; PostgreSQL is bound only to `127.0.0.1` on the configured `POSTGRES_PORT`, and Redis is bound only to `127.0.0.1:6379`. Compose waits for PostgreSQL health, applies the idempotent numbered migrations, then starts the API and frontend. The API accepts PostgreSQL-backed writes if Redis later disconnects; Redis reconnects are handled by the existing runtime.
+
+Use `docker compose ps` to inspect health, `docker compose logs -f api web` to follow application logs, and `docker compose stop` to stop the stack. `docker compose down` removes containers and the private Compose network but preserves the named database/cache volumes. Do not use volume-removal options if you want to keep local data. The committed `.env.example` contains only local development defaults; never reuse its password or expose these ports to a network.
+
+The Compose stack does not start Kafka, the outbox relay worker, or connect to AWS. Domain events remain durable in PostgreSQL's outbox until a separately configured Kafka relay runs. File API calls remain unavailable until private S3 configuration and credentials are supplied. Neither AWS resources nor cloud services are provisioned by this local setup.
