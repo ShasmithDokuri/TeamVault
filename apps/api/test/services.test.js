@@ -78,9 +78,10 @@ describe('service boundaries', () => {
     const services = createServices(repositories);
 
     expect(Object.isFrozen(services)).toBe(true);
-    expect(Object.keys(services)).toEqual(['workspaces', 'projects', 'comments', 'activity']);
+    expect(Object.keys(services)).toEqual(['workspaces', 'projects', 'comments', 'activity', 'files']);
     expect(Object.isFrozen(services.projects)).toBe(true);
     expect(Object.keys(services.projects)).not.toContain('getPool');
+    expect(Object.isFrozen(services.files)).toBe(true);
   });
 
   test('app composition injects the activity service into its authenticated route', async () => {

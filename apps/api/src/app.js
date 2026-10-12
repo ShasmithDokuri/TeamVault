@@ -9,14 +9,18 @@ const { createWorkspaceRouter } = require('./routes/workspaces');
 const { createProjectsRouter } = require('./routes/projects');
 const { createCommentsRouter } = require('./routes/comments');
 const { createActivityRouter } = require('./routes/activity');
+const { createFilesRouter } = require('./routes/files');
 const { createServices } = require('./services/create-services');
+const { readFileStorageConfig } = require('./files/config');
 const healthRouter = require('./routes/health');
 
 function createApp({
   authService = createAuthService(userRepository, googleOAuth),
-  services = createServices(),
+  services,
+  fileStorageConfig = readFileStorageConfig(),
 } = {}) {
   const app = express();
+  const appServices = services ?? createServices({}, { fileConfig: fileStorageConfig });
 
   app.disable('x-powered-by');
   app.use(cors({
@@ -24,13 +28,14 @@ function createApp({
       callback(null, origin === webOrigin ? origin : false);
     },
   }));
-  app.use(express.json({ limit: '100kb' }));
   app.use('/api/health', healthRouter);
+  app.use('/api/workspaces', createFilesRouter(authService, appServices.files, fileStorageConfig));
+  app.use(express.json({ limit: '100kb' }));
   app.use('/api/auth', createAuthRouter(authService));
-  app.use('/api/workspaces', createWorkspaceRouter(authService, services.workspaces));
-  app.use('/api/workspaces', createProjectsRouter(authService, services.projects));
-  app.use('/api/workspaces', createCommentsRouter(authService, services.comments));
-  app.use('/api/workspaces', createActivityRouter(authService, services.activity));
+  app.use('/api/workspaces', createWorkspaceRouter(authService, appServices.workspaces));
+  app.use('/api/workspaces', createProjectsRouter(authService, appServices.projects));
+  app.use('/api/workspaces', createCommentsRouter(authService, appServices.comments));
+  app.use('/api/workspaces', createActivityRouter(authService, appServices.activity));
 
   app.use((_request, response) => {
     response.status(404).json({ error: 'Not found' });

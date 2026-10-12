@@ -46,11 +46,21 @@ Outbox payloads contain resource and actor IDs, the event type, the activity eve
 
 - **PostgreSQL** will hold persistent application data, including users, workspaces, memberships, projects, tasks, comments, notifications, and activity records.
 - **Redis** is planned for caching, rate limiting, and presence where those capabilities are introduced. PostgreSQL remains the source of truth for persistent product records.
-- **Amazon S3** will provide private file storage in a later milestone. Access will be mediated by authorization checks, with no public object access intended.
-- **Kafka** will carry domain events to background workers in a later milestone. Events can support asynchronous work such as notification delivery and other background processing.
+- **Amazon S3** stores private project/task files. Access is mediated by authenticated API operations; objects receive no public ACL and the bucket must block public access.
+- **Kafka** receives sanitized domain events through the PostgreSQL outbox relay. Future consumers can support asynchronous work such as notification delivery and other background processing.
 - **Socket.IO** will provide notifications and live updates in a later milestone. Connections and subscriptions will be authorized against the user's workspace access.
 
-Redis, S3, Kafka, background workers, and Socket.IO are planned capabilities and are not prerequisites for the initial modular monolith.
+Redis and Socket.IO remain later capabilities. Kafka and the private S3 file flow are implemented in the milestones described below; local tests use injected doubles and do not require cloud resources.
+
+### Milestone 9 private files
+
+Files attach to an authorized project or task. The API authenticates every request, checks current workspace membership and resource scope in parameterized SQL, and permits only the uploader or workspace owner/admin to delete an attachment. Upload bytes are sent through the API with a strict size limit, an allowlisted MIME type, and matching basic file signatures. S3 object keys are generated from server-side random UUIDs; client file names are stored only as download metadata and never form part of an object key.
+
+The S3 adapter uses the AWS SDK credential provider chain and requires `AWS_REGION` plus `S3_BUCKET`; no static credentials are added to application configuration. It omits ACLs, sets server-side encryption, and the bucket must have S3 Block Public Access enabled. Downloads stream through the authenticated API and are marked private/no-store; no public URL is returned.
+
+PostgreSQL file rows move through pending, available, failed, and deleting states. The row is created before the S3 put; only an uploaded object whose metadata transition succeeds is downloadable. Upload tokens fence stale retries, active uploads renew their lease, and abandoned pending uploads can be reclaimed after five minutes. Every retry gets a fresh random object key, so a stale attempt cannot overwrite the current attempt; only available or failed files may be deleted, preventing deletion from racing a live upload. Failed uploads keep a retryable row and can be retried by the uploader using the returned file ID. If metadata finalization fails, the API attempts object cleanup and reports a retryable consistency error. Deletes are also retryable when object deletion succeeds but metadata deletion fails. Project, task, or workspace deletion is restricted while attachments remain, so callers must delete files first and parent deletion cannot orphan S3 objects.
+
+The API buffers each upload up to the configured 10 MiB maximum to validate signatures before storage and admits at most four simultaneous uploads per process by default (`FILE_MAX_CONCURRENT_UPLOADS`, configurable from 1 to 8). This bounds upload-body buffering to at most 80 MiB per process; it is not a fleet-wide limit. Local integration tests use a fake object store and PostgreSQL; no AWS resources or live S3 calls are part of the milestone verification.
 
 ## Security and tenant isolation
 

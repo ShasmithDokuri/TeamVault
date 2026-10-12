@@ -9,6 +9,14 @@ function errorHandler(error, _request, response, next) {
     return;
   }
 
+  if (['23503', '23001'].includes(error.code) && [
+    'workspace_files_project_workspace_fk',
+    'workspace_files_task_project_workspace_fk',
+  ].includes(error.constraint)) {
+    response.status(409).json({ error: 'Delete attached files before removing this resource.' });
+    return;
+  }
+
   const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500
     ? error.status
     : 500;
