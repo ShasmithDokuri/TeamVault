@@ -8,10 +8,16 @@ async function migrate() {
     throw new Error('Set DATABASE_URL before running database migrations.');
   }
 
-  const migrationPath = path.join(__dirname, '../../migrations/001_auth.sql');
-  const sql = await fs.readFile(migrationPath, 'utf8');
-  await getPool().query(sql);
-  process.stdout.write('Authentication schema is up to date.\n');
+  const migrationsDirectory = path.join(__dirname, '../../migrations');
+  const migrationFiles = (await fs.readdir(migrationsDirectory))
+    .filter((filename) => /^\d{3}_[a-z0-9_-]+\.sql$/u.test(filename))
+    .sort();
+
+  for (const filename of migrationFiles) {
+    const sql = await fs.readFile(path.join(migrationsDirectory, filename), 'utf8');
+    await getPool().query(sql);
+    process.stdout.write(`Applied ${filename}.\n`);
+  }
 }
 
 migrate()

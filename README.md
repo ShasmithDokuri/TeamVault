@@ -18,7 +18,13 @@ Google sign-in is available at `GET /api/auth/google` when `GOOGLE_CLIENT_ID`, `
 
 Copy `apps/api/.env.example` to `apps/api/.env`, set `DATABASE_URL` to a PostgreSQL database, then run `npm run db:migrate --workspace @teamvault/api` before registering or logging in. Google credentials are optional and belong only in the ignored `.env` file or deployment secret configuration.
 
-PostgreSQL integration tests run when `TEAMVAULT_TEST_DATABASE_URL` is set to the dedicated `teamvault_m3_review` database; they apply the idempotent authentication migration and add uniquely named test records. They do not reset or delete database contents.
+PostgreSQL integration tests run when `TEAMVAULT_TEST_DATABASE_URL` is set to the dedicated `teamvault_m3_review` database; they apply the numbered idempotent migrations and add uniquely named test records. They do not reset existing database contents. The workspace authorization test removes only a workspace created by that test, and leaves its uniquely named fixture users in place.
+
+## Milestone 4 workspaces and RBAC
+
+Authenticated users can create and list workspaces, read a workspace they belong to, and manage its members through `/api/workspaces`. The creator becomes the workspace owner in the same database transaction as workspace creation. Owners and admins can rename a workspace; only owners can delete it. Owners can add members as admins or members and change non-owner roles. Admins can add or remove members, but cannot grant admin access, manage admins, or remove the owner. Members can read workspace details and membership only. The owner role cannot be assigned or removed through the member-management API.
+
+Workspace and membership reads and writes bind both the workspace ID and the authenticated user ID in SQL authorization predicates. Nonmembers and callers without the required role receive the same not-found response, which avoids exposing whether another workspace or member exists. The migration enforces valid roles, workspace/user foreign keys, exactly one owner per workspace, and unique membership per user and workspace. PostgreSQL integration tests use the isolated `teamvault_m3_review` database, apply all numbered migrations, and leave uniquely identified fixtures in place without resetting database contents.
 
 ## Known dependency advisory
 
@@ -55,4 +61,4 @@ apps/
     src/
 ```
 
-Workspaces, RBAC, collaboration features, background processing, files, containerization, and cloud infrastructure remain planned work for their designated milestones.
+Projects, tasks, collaboration features, background processing, files, containerization, and cloud infrastructure remain planned work for their designated milestones.
