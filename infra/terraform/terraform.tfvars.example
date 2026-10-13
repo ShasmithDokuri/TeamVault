@@ -10,3 +10,5 @@ db_username       = "teamvault_admin"
 deployment_approved = false
 # Supply an ACM certificate ARN for an approved public HTTPS deployment.
 acm_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/replace-after-approval"
+# Explicit Kubernetes operator role; replace only as part of an approved deployment.
+eks_cluster_admin_role_arn = "arn:aws:iam::123456789012:role/TeamVaultOperator"

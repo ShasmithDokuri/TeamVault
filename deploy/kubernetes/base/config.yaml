@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: teamvault-api-config
+data:
+  NODE_ENV: production
+  PORT: "3001"
+  COOKIE_SECURE: "true"
+  # Replace with the exact HTTPS browser origin before deployment.
+  WEB_ORIGIN: https://teamvault.example.invalid
+  # ALB -> Nginx -> Express. Change only when the trusted proxy chain changes.
+  TRUST_PROXY_HOPS: "2"
+  FILE_MAX_BYTES: "10485760"
+  FILE_MAX_CONCURRENT_UPLOADS: "4"
+  AWS_REGION: us-east-1
+  S3_BUCKET: replace-with-private-bucket-name
+  KAFKA_TOPIC: teamvault.domain-events
+  KAFKA_SSL: "true"
+  OUTBOX_POLL_INTERVAL_MS: "1000"

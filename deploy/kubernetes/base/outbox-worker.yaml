@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teamvault-outbox-worker
+  labels:
+    app.kubernetes.io/name: teamvault-outbox-worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 5
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teamvault-outbox-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: teamvault-outbox-worker
+    spec:
+      serviceAccountName: teamvault-worker
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 45
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: outbox-worker
+          image: teamvault-api:latest
+          imagePullPolicy: IfNotPresent
+          command: [node, src/workers/outbox-publisher.js]
+          envFrom:
+            - configMapRef:
+                name: teamvault-api-config
+            - secretRef:
+                name: teamvault-worker-secrets
+            - secretRef:
+                name: teamvault-kafka-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

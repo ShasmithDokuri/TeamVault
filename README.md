@@ -1,6 +1,6 @@
 # TeamVault
 
-TeamVault is a multi-tenant collaboration platform being built milestone by milestone. The repository contains a React frontend and an Express API in a single repository. Milestone 3 adds database-backed account authentication and optional Google sign-in to the API.
+TeamVault is a multi-tenant collaboration application with a React browser client and an Express modular-monolith API. It includes authentication, workspace roles, projects, tasks, comments, activity, private file operations, and workspace-scoped realtime updates. AWS/EKS files are configuration only; no AWS resources are deployed by this repository workflow.
 
 ## Milestone 2 implementation plan
 
@@ -57,8 +57,9 @@ The web development server proxies `/api` requests to the API. The API defaults 
 
 ## Checks
 
-- `npm test` runs API route tests.
+- `npm test` runs API unit and route tests, PostgreSQL integration tests when `TEAMVAULT_TEST_DATABASE_URL` is set, and frontend component tests.
 - `npm run build` checks the API entry points and builds the frontend.
+- `npm run test:e2e --workspace @teamvault/web` runs the Chromium browser workflow against the dedicated local test database; see the database safety instructions above.
 
 ## Project layout
 
@@ -127,4 +128,41 @@ The Compose stack does not start Kafka, the outbox relay worker, or connect to A
 
 The browser app now supports account registration, login/logout, protected navigation, workspace creation and membership/role management, project management, and task CRUD through the existing workspace-scoped API routes. It uses a short-lived `HttpOnly; SameSite=Lax` session cookie and does not store session tokens in browser storage or URLs. Cookie-authenticated state-changing requests require the configured exact `WEB_ORIGIN`; `COOKIE_SECURE` defaults on in production and is explicitly disabled only for the local HTTP Compose stack. Existing bearer-token API clients remain supported. Workspace owners/admins can add an already-registered user by email; this does not send an invitation email.
 
+The browser also provides project/task comments, a paginated workspace activity feed, and project/task file upload, listing, download, and deletion through the authenticated API. Files stay private; the browser never receives S3 keys or public URLs. Socket.IO updates are workspace scoped and best-effort. For browser sockets, the API issues a 30-second one-time ticket through the same-origin, cookie-authenticated endpoint. Only the ticket hash is stored in PostgreSQL; the socket server consumes it once and rechecks the live session and membership before subscription and each event. The browser keeps the ticket only in memory for that connection attempt. On reconnect it requests a new ticket and reloads state through the normal APIs.
+
+Browser end-to-end tests run against only the dedicated local `teamvault_m3_review` database and use an in-memory fake object store. They apply the idempotent numbered migrations and clean only records created by the current uniquely identified test run. They do not use the development database or make AWS calls. Install the browser once with `npx playwright install chromium`, then set `TEAMVAULT_TEST_DATABASE_URL` privately in the same Terminal session to a local connection URL whose database is `teamvault_m3_review`, and run:
+
+```sh
+npm run test:e2e --workspace @teamvault/web
+```
+
+The test runner verifies the connected database identity before applying migrations, and refuses URLs that do not point to a local `teamvault_m3_review` database. It starts isolated API and Vite processes on ports 3317 and 4173 and shuts them down after the run.
+
 Milestone 12 Terraform files under `infra/terraform/` are configuration only and have not been applied or verified against AWS. A built-in approval gate defaults to false; do not enable it until a resource-by-resource estimate and deployment plan have been explicitly approved. The optional NAT gateway is disabled by default. Terraform state, plans, and real variable files are ignored by Git.
+
+## Milestone 13 browser product and EKS package
+
+The browser collaboration screens and their local end-to-end workflow are described above and are covered by the Playwright suite. The EKS package is under `deploy/kubernetes/`. It separates database liveness from readiness, runs migrations as a one-shot Job before application rollouts, deploys API/web workloads and the outbox worker with probes and resource bounds, and references externally managed Kubernetes Secrets. `TRUST_PROXY_HOPS` is 0 for local development; the documented ALB → Nginx → API topology uses 2. Keep the API Service private and change that count only with the proxy layout.
+
+The Terraform configuration now includes EKS and private service endpoints, but neither Terraform nor Kubernetes has been applied to AWS. The manifests contain image, HTTPS origin, bucket, and region placeholders. PostgreSQL, Redis, and Kafka connection secrets must be supplied through an approved secret-management process; the API database principal should be restricted, with a separate migration principal. Redis and Kafka are external service boundaries in this package. Private subnets have no default internet route with NAT disabled, so external Google OAuth or broker endpoints need separately approved connectivity. See [the EKS deployment guide](deploy/kubernetes/README.md) for validation, prerequisites, rollout, health, and rollback steps.
+
+## Milestone 14 CI and operational readiness
+
+GitHub Actions runs on pull requests and pushes to `main`. It uses a fresh PostgreSQL 16 service named `teamvault_m3_review`, verifies that database identity before tests, runs API/frontend unit and PostgreSQL integration suites, builds the app, checks production dependencies, runs browser E2E with Chromium, validates Terraform formatting/configuration using `init -backend=false`, and renders both Kubernetes Kustomize packages without contacting a cluster. Its repository token is read-only. It does not build/publish images, deploy Kubernetes, contact AWS, or use repository secrets. Dependabot checks npm packages and GitHub Actions weekly.
+
+The API emits one JSON access record per completed request outside test mode. It includes a generated request ID, HTTP method, route template, status, and elapsed time; it deliberately excludes full URLs, query strings, client IPs, headers, cookies, bodies, user identifiers, and resource values. The response includes `X-Request-Id` for support correlation. These records go to stdout; collecting them centrally requires an approved deployment logging pipeline and is not configured or verified here. Liveness is `/api/health`; readiness is `/api/ready` and fails closed when PostgreSQL cannot answer.
+
+A read-only k6 health scenario is at `apps/api/test/load-health.k6.js`. It makes 5 requests/second for one minute to the liveness and readiness endpoints, with a 1% error-rate and 500 ms p95 threshold. Run only against local Compose or another explicitly approved non-production target:
+
+```sh
+k6 run apps/api/test/load-health.k6.js
+BASE_URL=http://127.0.0.1:8080 k6 run apps/api/test/load-health.k6.js
+```
+
+This smoke scenario checks health-path behavior, not authenticated product throughput, multi-tenant workload capacity, or production scaling. Its thresholds are guardrails, not measured SLOs. No k6 result is claimed until it is run; local performance depends on hardware and service configuration.
+
+For local verification, the CI-equivalent checks are `npm ci`, `npm test` (with `TEAMVAULT_TEST_DATABASE_URL` privately set to the dedicated `teamvault_m3_review` database), `npm run build`, `npm audit --omit=dev`, `npm ls --depth=0`, `npx playwright install chromium`, `npm run test:e2e --workspace @teamvault/web`, `terraform -chdir=infra/terraform fmt -check -recursive`, `terraform -chdir=infra/terraform init -backend=false`, and `terraform -chdir=infra/terraform validate`. Do not configure CI or local tests to use the persistent development database. Terraform plan/apply and AWS deployment remain separately gated and are not CI actions.
+
+## Portfolio and security references
+
+See [PORTFOLIO.md](PORTFOLIO.md) for a feature walkthrough, architecture diagram, and a precise list of unverified integrations. [SECURITY.md](SECURITY.md) summarizes trust boundaries, implemented controls, and outstanding security/operations work.

@@ -1,0 +1,44 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: teamvault-migrations
+  labels:
+    app.kubernetes.io/name: teamvault-migrations
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: teamvault-migrations
+    spec:
+      restartPolicy: Never
+      serviceAccountName: teamvault-migrator
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: teamvault-api:latest
+          imagePullPolicy: IfNotPresent
+          command: [node, src/db/migrate.js]
+          envFrom:
+            - secretRef:
+                name: teamvault-migration-secrets
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]

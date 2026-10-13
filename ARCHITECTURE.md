@@ -6,17 +6,17 @@ This document records the current architecture and delivery path for TeamVault. 
 
 ## Product
 
-TeamVault is planned as a secure, multi-tenant collaboration platform. Teams will use workspaces to manage members, projects, tasks, comments, files, notifications, and activity. A user may belong to multiple workspaces, and workspace membership and role will govern access to that workspace's data.
+TeamVault is a multi-tenant collaboration application. Teams use workspaces to manage members, projects, tasks, comments, private files, and activity. A user may belong to multiple workspaces; membership and role govern access to each workspace's data. The browser app provides these product flows against the existing API. Notifications remain future scope.
 
 ## Application architecture
 
 ### Frontend
 
-The browser client will use React. It will provide the workspace-oriented interface for collaboration features and communicate with the backend through authenticated APIs. Socket.IO provides best-effort live resource-change hints; PostgreSQL-backed APIs remain authoritative.
+The browser client uses React and provides the workspace-oriented interface for collaboration features through authenticated APIs. Socket.IO provides best-effort live resource-change hints; PostgreSQL-backed APIs remain authoritative.
 
 ### Backend: modular monolith first
 
-The backend will use Node.js and Express. Initially, it will run as one deployable application organized into modules with clear responsibilities, such as authentication, workspaces and membership, projects and tasks, comments, files, notifications, and activity. Modules should interact through defined internal interfaces and share the application's PostgreSQL database. This keeps local development and early delivery straightforward while preserving boundaries that can support later extraction.
+The backend uses Node.js and Express as one deployable application organized into modules with clear responsibilities, including authentication, workspaces and membership, projects and tasks, comments, files, and activity. Modules interact through defined internal interfaces and share the application's PostgreSQL database. This keeps local development straightforward while preserving boundaries that could support later extraction.
 
 The application remains a single Express deployment. `src/services/create-services.js` composes the in-process APIs consumed by HTTP routes. The service interfaces are injectable, frozen objects that expose only the module operations needed by the routes. They call module repositories directly in the same process; no network or message broker is involved.
 
@@ -64,28 +64,32 @@ The API buffers each upload up to the configured 10 MiB maximum to validate sign
 
 ## Security and tenant isolation
 
-Authentication will establish a verified user identity. Password-based authentication will use a secure password-hashing algorithm; token handling will avoid exposing credentials and will use appropriate expiration, storage, and transport protections. Google OAuth is a planned authentication option. Inputs will be validated at API boundaries, errors will be safe to return to clients, CORS will be restricted to approved origins, and rate limits will protect sensitive and abuse-prone endpoints. Security-relevant actions will be recorded in an audit log.
+Passwords are hashed with scrypt. Sessions use opaque random tokens whose hashes are stored in PostgreSQL, with expiration and revocation. Browser sessions use HttpOnly, SameSite cookies; state-changing cookie requests enforce the configured exact web origin. Google OAuth validates state, PKCE, nonce, issuer, audience, verified email, and redirect URI when configured, but live provider integration is not verified. Inputs are validated at API boundaries, errors are safe to return, CORS is restricted to the configured origin, and sensitive endpoints use rate limits. Security-relevant authentication actions are recorded without credentials or email addresses.
 
-Role-based access control (RBAC) will be evaluated in the context of a workspace. Before accessing tenant-owned data, the backend will establish that the authenticated user is a member of the requested workspace and has the required role or permission. Tenant-owned records will carry a workspace association, and every read, update, and delete query for those records will include the authorized workspace identifier. Create operations will derive or validate that identifier from the authorized workspace context rather than trusting an arbitrary client-supplied workspace identifier.
+RBAC is evaluated in the workspace context. The API checks authenticated membership and role before tenant operations, and SQL predicates scope reads and writes by authorized workspace and resource IDs. Creates derive workspace ownership from the authorized route context. Composite foreign keys and constraints protect related project, task, assignee, and file references.
 
-Cross-workspace access will be prevented by applying authorization before data access and by including the authorized workspace scope in the database operation itself. Object identifiers supplied by a client will never be treated as proof of access. Related-record operations will verify that both records belong to the same authorized workspace. The same authorization context will be applied to file access, background jobs, and real-time subscriptions as those capabilities are added. Responses should not reveal whether another workspace's inaccessible record exists.
+Client-supplied IDs are never proof of access. Related-record operations verify that records belong to the same authorized workspace. File reads go through the API; socket ticket issuance, subscription, session checks, and event recipients use server-side membership checks. Unauthorized/missing tenant resources use consistent not-found responses where applicable.
 
-Automated authorization and isolation tests will create records in separate workspaces and attempt reads and mutations from users who lack membership or sufficient role. They will cover direct identifiers, nested resources and relationships, and cross-workspace combinations; unauthorized requests must not return or alter another workspace's data. Tests will also check that membership is required before tenant-scoped queries run.
+Automated tests cover role permissions and cross-workspace reads/writes, including guessed project/file IDs, plus the complete browser workflow against a dedicated local test database. These tests provide evidence for the exercised paths, not a formal security certification or independent penetration test.
 
 ## Local development and deployment path
 
-Development will begin locally with Docker Compose for the application dependencies. Local setup and checks will be documented as milestones add components. No AWS resources are part of this architecture-document milestone.
+Local development uses Docker Compose for PostgreSQL, Redis, API, and the static web app. Setup and checks are documented in this repository. AWS resources are not part of normal local development.
 
-Later deployment milestones are planned to use Terraform to define AWS infrastructure, including a VPC, RDS PostgreSQL, private S3 storage, ECR for container images, EKS for Kubernetes workloads, an ALB for ingress, IAM for least-privilege access, and CloudWatch for logs and monitoring. GitHub Actions will support CI/CD. Cloud infrastructure will be introduced only in its designated roadmap milestones; this document does not provision it.
+The local delivery path uses Docker Compose with PostgreSQL, Redis, API, and static web containers. The EKS package remains a single application deployment with API, web, migration Job, and outbox worker workloads. PostgreSQL, Redis, Kafka, and S3 are explicit external service boundaries; this deployment configuration does not split application modules into separate services. Terraform defines a VPC, private RDS PostgreSQL, private S3, ECR, EKS, an ALB, Pod Identity, private ECR/S3/STS/EKS Auth endpoints, and CloudWatch control-plane logs. Kubernetes secrets are references only and must be populated by a protected secret-management system. Terraform is configuration only and has not been applied or verified against AWS.
+
+The browser product uses the existing authenticated APIs for registration, login/logout, workspace membership/roles, projects, tasks, comments, activity, private files, and workspace-scoped Socket.IO hints. The E2E suite covers these flows against the dedicated local test database and an in-memory object store. Browser access uses HttpOnly session cookies and one-time socket tickets; tokens are not persisted in browser storage or URLs.
+
+Milestone 14 adds read-only GitHub Actions CI for pull requests and `main`, including ephemeral PostgreSQL integration tests, browser E2E, production build/dependency checks, local-only Terraform validation, and Kubernetes manifest rendering without a cluster. CI has no deploy credentials and does not publish images or provision infrastructure. The API writes privacy-limited JSON request timing records to stdout; central log collection is not configured. A read-only k6 health smoke scenario is provided, but no load results or capacity targets have been established. EKS, AWS connectivity, and production observability remain unverified.
 
 ## Testing approach
 
-Testing will grow alongside implementation:
+Current verification includes:
 
 - **Unit tests** will cover module logic and validation rules.
 - **API integration tests** will exercise routes, persistence, and expected error behavior.
 - **Authorization and tenant-isolation tests** will verify membership, role checks, and workspace scoping, including attempts to access another workspace's records.
-- **Load tests**, planned for a later milestone, will exercise the implemented system under representative usage and help guide scaling work.
+- **Load smoke checks** can exercise liveness/readiness endpoints with k6. Representative authenticated workload benchmarks and capacity targets have not been measured.
 
 ## 15-milestone roadmap
 
@@ -104,7 +108,7 @@ Each milestone should implement only its stated scope, run appropriate checks, d
 11. **Docker delivery:** containerize the application and dependencies and complete the Docker Compose local development workflow.
 12. **AWS infrastructure:** define the VPC, RDS, S3, ECR, ALB, IAM, and CloudWatch foundations with Terraform; this milestone is the first planned AWS provisioning milestone and requires separate authorization before resources are created.
 13. **EKS deployment:** deploy containerized workloads to EKS and connect the required AWS services.
-14. **Scaling and CI/CD:** add GitHub Actions delivery workflows and address scaling, monitoring, and operational needs.
-15. **Final testing and documentation:** complete integration, authorization/isolation, and load testing; document setup, deployment, operations, and known limitations.
+14. **Scaling and CI/CD:** add GitHub Actions delivery workflows and address scaling, monitoring, and operational needs. CI and basic request telemetry are implemented; hosted CI execution and production log collection are not verified.
+15. **Final testing and documentation:** complete integration, authorization/isolation, and load testing; document setup, deployment, operations, and known limitations. Browser E2E runs locally; a limited load smoke scenario is available but has not been measured.
 
 The roadmap places Docker Compose and local development before AWS deployment. Service separation, Kafka, Redis-backed capabilities, and real-time delivery are later additions and should not be implemented ahead of their milestones.

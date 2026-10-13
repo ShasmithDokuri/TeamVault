@@ -160,8 +160,8 @@ resource "aws_vpc_security_group_ingress_rule" "web_from_alb" {
   security_group_id            = aws_security_group.workload.id
   referenced_security_group_id = aws_security_group.load_balancer.id
   ip_protocol                  = "tcp"
-  from_port                    = 8080
-  to_port                      = 8080
+  from_port                    = 30080
+  to_port                      = 30080
   description                  = "ALB to the web service only."
 }
 
@@ -314,10 +314,12 @@ resource "aws_lb" "web" {
 }
 
 resource "aws_lb_target_group" "web" {
-  name        = substr("${local.name}-web", 0, 32)
-  port        = 8080
+  name = substr("${local.name}-web", 0, 32)
+  # The ALB registers worker-node instances, so traffic reaches the Kubernetes
+  # NodePort rather than the web container's in-cluster port.
+  port        = 30080
   protocol    = "HTTP"
-  target_type = "ip"
+  target_type = "instance"
   vpc_id      = aws_vpc.main.id
   health_check {
     enabled             = true

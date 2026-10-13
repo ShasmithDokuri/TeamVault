@@ -42,3 +42,13 @@ output "file_access_policy_arn" {
   description = "Least-privilege S3 policy ARN; attach it only to the approved EKS workload identity."
   value       = aws_iam_policy.files_access.arn
 }
+
+output "eks_cluster_name" {
+  description = "EKS cluster name for a later explicitly approved deployment."
+  value       = aws_eks_cluster.main.name
+}
+
+output "api_pod_identity_role_arn" {
+  description = "Least-privilege Pod Identity role associated with the TeamVault API service account."
+  value       = aws_iam_role.api_pod_identity.arn
+}

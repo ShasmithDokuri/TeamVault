@@ -1,0 +1,19 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teamvault-api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teamvault-api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: teamvault-web
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teamvault-web
