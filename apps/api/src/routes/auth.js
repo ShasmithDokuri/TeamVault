@@ -4,8 +4,11 @@ const rateLimit = require('express-rate-limit');
 const { createRequireAuth } = require('../middleware/require-auth');
 const { DuplicateAccountError } = require('../auth/user-repository');
 const { validateCredentials } = require('../auth/validation');
+const { SESSION_COOKIE } = require('../middleware/require-auth');
+const { SESSION_TTL_SECONDS } = require('../auth/tokens');
+const { webOrigin } = require('../config');
 
-function createAuthRouter(authService, { rateLimitStore, realtimeHub } = {}) {
+function createAuthRouter(authService, { rateLimitStore, realtimeHub, cookieSecure } = {}) {
   const router = express.Router();
   const requireAuth = createRequireAuth(authService);
   const authAttemptLimiter = rateLimit({
@@ -18,13 +21,13 @@ function createAuthRouter(authService, { rateLimitStore, realtimeHub } = {}) {
     message: { error: 'Too many authentication attempts. Try again later.' },
   });
 
-  router.post('/register', authAttemptLimiter, async (request, response, next) => {
+  router.post('/register', requireBrowserOrigin, authAttemptLimiter, async (request, response, next) => {
     const validation = validateCredentials(request.body, { registration: true });
     if (!validation.value) return response.status(400).json({ error: validation.error });
 
     try {
       const result = await authService.register(validation.value);
-      return response.status(201).json(sessionResponse(result));
+      return sendSession(request, response, result, 201, cookieSecure);
     } catch (error) {
       if (error instanceof DuplicateAccountError || error.code === '23505') {
         return response.status(409).json({ error: 'Unable to create an account with those details.' });
@@ -33,14 +36,14 @@ function createAuthRouter(authService, { rateLimitStore, realtimeHub } = {}) {
     }
   });
 
-  router.post('/login', authAttemptLimiter, async (request, response, next) => {
+  router.post('/login', requireBrowserOrigin, authAttemptLimiter, async (request, response, next) => {
     const validation = validateCredentials(request.body);
     if (!validation.value) return response.status(400).json({ error: validation.error });
 
     try {
       const result = await authService.login(validation.value);
       if (!result) return response.status(401).json({ error: 'Invalid email or password.' });
-      return response.status(200).json(sessionResponse(result));
+      return sendSession(request, response, result, 200, cookieSecure);
     } catch (error) {
       return next(error);
     }
@@ -54,6 +57,7 @@ function createAuthRouter(authService, { rateLimitStore, realtimeHub } = {}) {
     try {
       await authService.logout(request.auth.token, request.auth.user.id);
       if (realtimeHub) void realtimeHub.disconnectUser(request.auth.user.id).catch(() => {});
+      if (request.auth.method === 'cookie') response.set('Set-Cookie', sessionCookie('', 0, cookieSecure));
       return response.status(204).end();
     } catch (error) {
       return next(error);
@@ -149,4 +153,34 @@ function sessionResponse({ user, token, expiresAt }) {
   };
 }
 
-module.exports = { createAuthRouter };
+function sendSession(request, response, session, status, cookieSecure) {
+  if (request.get('x-teamvault-auth-mode') === 'cookie') {
+    response.set({
+      'Cache-Control': 'no-store',
+      'Set-Cookie': sessionCookie(session.token, SESSION_TTL_SECONDS, cookieSecure),
+    });
+    return response.status(status).json({ user: session.user, expiresAt: session.expiresAt.toISOString() });
+  }
+  return response.status(status).json(sessionResponse(session));
+}
+
+function requireBrowserOrigin(request, response, next) {
+  if (request.get('x-teamvault-auth-mode') === 'cookie' && request.get('origin') !== webOrigin) {
+    return response.status(403).json({ error: 'Request origin is not allowed.' });
+  }
+  return next();
+}
+
+function sessionCookie(token, maxAge, secure = false) {
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+    'HttpOnly',
+    'SameSite=Lax',
+    'Path=/api',
+    `Max-Age=${maxAge}`,
+  ];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+module.exports = { createAuthRouter, sessionCookie };

@@ -6,6 +6,7 @@ describeWithDatabase('PostgreSQL workspace authorization integration', () => {
   let pool;
   let request;
   const users = {};
+  const emails = {};
   const tokens = {};
   const workspaceIds = {};
 
@@ -24,6 +25,7 @@ describeWithDatabase('PostgreSQL workspace authorization integration', () => {
       [session.tokenHash, id, session.expiresAt],
     );
     users[label] = id;
+    emails[label] = email;
     tokens[label] = session.token;
     return id;
   }
@@ -97,7 +99,7 @@ describeWithDatabase('PostgreSQL workspace authorization integration', () => {
     expect(ownerAddsAdmin.status).toBe(201);
     const ownerAddsMember = await request(app)
       .post(`/api/workspaces/${firstWorkspaceId}/members`).set(as('owner'))
-      .send({ userId: users.member });
+      .send({ email: emails.member });
     expect(ownerAddsMember.status).toBe(201);
 
     const ownerWorkspaces = await request(app).get('/api/workspaces').set(as('owner'));

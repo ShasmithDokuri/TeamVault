@@ -73,6 +73,54 @@ describe('authentication routes', () => {
     expect(authService.logout).toHaveBeenCalledWith('b'.repeat(43), 'user-1');
   });
 
+  test('issues an HttpOnly same-site browser cookie without returning the token and revokes it on logout', async () => {
+    const authService = makeService({
+      register: jest.fn().mockResolvedValue({
+        user: { id: 'user-1', email: 'person@example.com', displayName: 'Person' },
+        token: 'c'.repeat(43), expiresAt: new Date('2030-01-01T00:15:00.000Z'),
+      }),
+      authenticate: jest.fn().mockResolvedValue({ id: 'user-1', email: 'person@example.com' }),
+    });
+    const app = createApp({ authService });
+    const origin = 'http://localhost:5173';
+    const registered = await request(app).post('/api/auth/register')
+      .set('Origin', origin).set('X-TeamVault-Auth-Mode', 'cookie')
+      .send({ email: 'person@example.com', password: 'long enough password' });
+
+    expect(registered.status).toBe(201);
+    expect(registered.body).not.toHaveProperty('accessToken');
+    const cookie = registered.headers['set-cookie'][0];
+    expect(cookie).toContain('tv_session=');
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
+    expect(cookie).toContain('Path=/api');
+    expect(cookie).toContain('Max-Age=900');
+
+    const me = await request(app).get('/api/auth/me').set('Cookie', cookie.split(';')[0]);
+    expect(me.status).toBe(200);
+    const logout = await request(app).post('/api/auth/logout').set('Origin', origin)
+      .set('Cookie', cookie.split(';')[0]);
+    expect(logout.status).toBe(204);
+    expect(authService.logout).toHaveBeenCalledWith('c'.repeat(43), 'user-1');
+    expect(logout.headers['set-cookie'][0]).toContain('Max-Age=0');
+  });
+
+  test('rejects wrong-origin cookie login before creating a session and blocks cookie-authenticated CSRF requests', async () => {
+    const authService = makeService({
+      authenticate: jest.fn().mockResolvedValue({ id: 'user-1', email: 'person@example.com' }),
+    });
+    const app = createApp({ authService });
+    const wrongOriginLogin = await request(app).post('/api/auth/login')
+      .set('Origin', 'https://attacker.example').set('X-TeamVault-Auth-Mode', 'cookie')
+      .send({ email: 'person@example.com', password: 'long enough password' });
+    expect(wrongOriginLogin.status).toBe(403);
+    expect(authService.login).not.toHaveBeenCalled();
+
+    const csrf = await request(app).post('/api/workspaces')
+      .set('Cookie', `tv_session=${'d'.repeat(43)}`).send({ name: 'Blocked' });
+    expect(csrf.status).toBe(403);
+  });
+
   test('does not disclose internal authentication errors', async () => {
     const authService = makeService({
       login: jest.fn().mockRejectedValue(new Error('database password leaked')),

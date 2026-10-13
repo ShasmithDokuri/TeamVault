@@ -87,7 +87,7 @@ async function listMembersForMember({ workspaceId, userId }) {
   return rows;
 }
 
-async function addMemberForManager({ workspaceId, actorId, userId, role }) {
+async function addMemberForManager({ workspaceId, actorId, userId = null, email = null, role }) {
   const { rows } = await getPool().query(
     `WITH authorized_actor AS (
        SELECT workspace_id, role
@@ -98,13 +98,16 @@ async function addMemberForManager({ workspaceId, actorId, userId, role }) {
        INSERT INTO workspace_members (workspace_id, user_id, role)
        SELECT authorized_actor.workspace_id, target.id, $4
        FROM authorized_actor
-       JOIN users AS target ON target.id = $3
+       JOIN users AS target ON (
+         ($3::uuid IS NOT NULL AND target.id = $3::uuid)
+         OR ($5::text IS NOT NULL AND target.email = $5::text)
+       )
        ON CONFLICT (workspace_id, user_id) DO NOTHING
        RETURNING workspace_id, user_id, role, created_at
      )
      SELECT added.user_id, users.email, users.display_name, added.role, added.created_at
      FROM added JOIN users ON users.id = added.user_id`,
-    [workspaceId, actorId, userId, role],
+    [workspaceId, actorId, userId, role, email],
   );
   return rows[0] ?? null;
 }

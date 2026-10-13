@@ -1,6 +1,6 @@
 const cors = require('cors');
 const express = require('express');
-const { googleOAuth, webOrigin } = require('./config');
+const { cookieSecure, googleOAuth, webOrigin } = require('./config');
 const { createAuthService } = require('./auth/service');
 const userRepository = require('./auth/user-repository');
 const errorHandler = require('./middleware/error-handler');
@@ -41,6 +41,7 @@ function createApp({
   app.use('/api/auth', createAuthRouter(authService, {
     rateLimitStore: redisRuntime.rateLimitStore,
     realtimeHub,
+    cookieSecure,
   }));
   app.use('/api/workspaces', createWorkspaceRouter(authService, appServices.workspaces));
   app.use('/api/workspaces', createProjectsRouter(authService, appServices.projects, realtimeHub));

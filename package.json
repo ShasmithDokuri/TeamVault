@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,green \"npm run dev --workspace @teamvault/api\" \"npm run dev --workspace @teamvault/web\"",
     "build": "npm run build --workspace @teamvault/api && npm run build --workspace @teamvault/web",
-    "test": "npm run test --workspace @teamvault/api"
+    "test": "npm run test --workspace @teamvault/api && npm run test --workspace @teamvault/web"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

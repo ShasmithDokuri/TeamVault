@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars only after a separately approved deployment plan.
+aws_region       = "us-east-1"
+project_name     = "teamvault"
+environment      = "portfolio"
+enable_nat_gateway = false
+db_instance_class = "db.t4g.micro"
+db_storage_gb     = 20
+db_username       = "teamvault_admin"
+# Set this true only after explicit cost/resource approval.
+deployment_approved = false
+# Supply an ACM certificate ARN for an approved public HTTPS deployment.
+acm_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/replace-after-approval"

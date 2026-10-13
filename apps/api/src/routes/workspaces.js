@@ -1,7 +1,7 @@
 const express = require('express');
 const { createRequireAuth } = require('../middleware/require-auth');
 const { createWorkspaceService } = require('../services/workspaces');
-const { isAssignableRole, isUuid, validateWorkspaceName } = require('../workspaces/validation');
+const { isAssignableRole, isUuid, validateMemberEmail, validateWorkspaceName } = require('../workspaces/validation');
 
 function createWorkspaceRouter(authService, workspaceService = createWorkspaceService()) {
   const router = express.Router();
@@ -93,15 +93,17 @@ function createWorkspaceRouter(authService, workspaceService = createWorkspaceSe
 
   router.post('/:workspaceId/members', async (request, response, next) => {
     if (!isUuid(request.params.workspaceId)) return notFound(response);
-    const { userId, role = 'member' } = request.body ?? {};
-    if (!isUuid(userId) || !isAssignableRole(role)) {
-      return response.status(400).json({ error: 'A valid user ID and assignable role are required.' });
+    const { userId, email, role = 'member' } = request.body ?? {};
+    const normalizedEmail = userId === undefined ? validateMemberEmail(email) : null;
+    if ((!isUuid(userId) && !normalizedEmail) || !isAssignableRole(role)) {
+      return response.status(400).json({ error: 'A registered user email or valid user ID and assignable role are required.' });
     }
     try {
       const member = await workspaceService.addMemberForManager({
         workspaceId: request.params.workspaceId,
         actorId: request.auth.user.id,
-        userId,
+        userId: userId ?? null,
+        email: normalizedEmail,
         role,
       });
       return member ? response.status(201).json({ member }) : notFound(response);

@@ -54,6 +54,7 @@ services:
       NODE_ENV: production
       PORT: 3001
       WEB_ORIGIN: http://localhost:${WEB_PORT:-8080}
+      COOKIE_SECURE: "false"
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
     depends_on:

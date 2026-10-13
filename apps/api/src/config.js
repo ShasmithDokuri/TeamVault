@@ -5,6 +5,12 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
 }
 
 const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:5173';
+const cookieSecure = process.env.COOKIE_SECURE === undefined
+  ? process.env.NODE_ENV === 'production'
+  : process.env.COOKIE_SECURE === 'true';
+if (process.env.COOKIE_SECURE !== undefined && !['true', 'false'].includes(process.env.COOKIE_SECURE)) {
+  throw new Error('COOKIE_SECURE must be true or false.');
+}
 const databaseUrl = process.env.DATABASE_URL;
 
 const googleOAuth = {
@@ -48,4 +54,4 @@ function validateGoogleOAuthConfig(config) {
 
 validateGoogleOAuthConfig(googleOAuth);
 
-module.exports = { databaseUrl, googleOAuth, port, validateGoogleOAuthConfig, webOrigin };
+module.exports = { cookieSecure, databaseUrl, googleOAuth, port, validateGoogleOAuthConfig, webOrigin };
