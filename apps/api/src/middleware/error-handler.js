@@ -4,6 +4,8 @@ function errorHandler(error, _request, response, next) {
     return;
   }
 
+  process.stderr.write("[api-error] " + (error?.stack || error?.message || String(error)) + "\n");
+
   if (error.code === 'SERVICE_UNAVAILABLE') {
     response.status(503).json({ error: 'Authentication service unavailable' });
     return;
