@@ -1,10 +1,12 @@
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
 export class ApiError extends Error {
   constructor(message, status, details = {}) { super(message); this.name = 'ApiError'; this.status = status; Object.assign(this, details); }
 }
 
 export async function apiRequest(path, { method = 'GET', body, browserSession = false, headers = {} } = {}) {
-  const response = await fetch(path, {
-    method, credentials: 'same-origin',
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method, credentials: 'include',
     headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(browserSession ? { 'X-TeamVault-Auth-Mode': 'cookie' } : {}), ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
@@ -20,7 +22,7 @@ export async function apiRequest(path, { method = 'GET', body, browserSession = 
 }
 
 async function fileRequest(path, options = {}) {
-  const response = await fetch(path, { credentials: 'same-origin', ...options });
+  const response = await fetch(`${API_BASE_URL}${path}`, { credentials: 'include', ...options });
   if (response.status === 401 && typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('teamvault:session-expired'));
   }

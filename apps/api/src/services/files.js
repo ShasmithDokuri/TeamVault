@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const { readFileStorageConfig } = require('../files/config');
 const { createS3ObjectStore } = require('../files/object-store');
+const { createLocalObjectStore } = require('../files/local-object-store');
 const fileRepository = require('../files/repository');
 
 class FileStorageUnavailableError extends Error {
@@ -15,7 +16,11 @@ function createFileService({
   objectStore,
   config = readFileStorageConfig(),
 } = {}) {
-  const storage = objectStore ?? createS3ObjectStore({ bucket: config.bucket, region: config.region });
+  const storage = objectStore ?? (
+    config.driver === 'local'
+      ? createLocalObjectStore({ directory: config.localPath })
+      : createS3ObjectStore({ bucket: config.bucket, region: config.region })
+  );
 
   return Object.freeze({
     canUploadToResource: (input) => repository.canUploadToResource(input),

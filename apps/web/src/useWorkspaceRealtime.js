@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
-import { api } from './api.js';
+import { API_BASE_URL, api } from './api.js';
 
 export function useWorkspaceRealtime(workspaceId, onResourceChanged) {
   const [status, setStatus] = useState(workspaceId ? 'connecting' : 'disconnected');
@@ -17,7 +17,7 @@ export function useWorkspaceRealtime(workspaceId, onResourceChanged) {
       try {
         const { ticket } = await api.auth.realtimeTicket();
         if (stopped) return;
-        socket = io(window.location.origin, {
+        socket = io(API_BASE_URL || window.location.origin, {
           path: '/socket.io',
           // The API validates the browser Origin on the initial Socket.IO
           // handshake. Same-origin polling GETs omit Origin in some browsers;

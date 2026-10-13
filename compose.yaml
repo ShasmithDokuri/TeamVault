@@ -45,6 +45,19 @@ services:
     command: ["node", "src/db/migrate.js"]
     restart: "no"
 
+  files-init:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    user: "0:0"
+    command:
+      - sh
+      - -c
+      - mkdir -p /workspace/var/files && chown -R 1000:1000 /workspace/var/files
+    volumes:
+      - files-data:/workspace/var/files
+    restart: "no"
+
   api:
     build:
       context: .
@@ -57,12 +70,18 @@ services:
       COOKIE_SECURE: "false"
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379
+      FILE_STORAGE_DRIVER: local
+      FILE_STORAGE_PATH: /workspace/var/files
+    volumes:
+      - files-data:/workspace/var/files
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
       migrate:
+        condition: service_completed_successfully
+      files-init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
@@ -85,3 +104,4 @@ services:
 volumes:
   postgres-data:
   redis-data:
+  files-data:

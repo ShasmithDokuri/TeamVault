@@ -37,6 +37,7 @@ function createApp({
     origin(origin, callback) {
       callback(null, origin === webOrigin ? origin : false);
     },
+    credentials: true,
   }));
   app.use('/api/health', healthRouter);
   app.use('/api/ready', readinessRouter);
