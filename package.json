@@ -12,6 +12,6 @@
     "test": "npm run test --workspace @teamvault/api && npm run test --workspace @teamvault/web"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "concurrently": "^10.0.6"
   }
 }
