@@ -1,6 +1,6 @@
 const cors = require('cors');
 const express = require('express');
-const { cookieSecure, googleOAuth, webOrigin } = require('./config');
+const { cookieSecure, googleOAuth, trustProxyHops, webOrigin } = require('./config');
 const { createAuthService } = require('./auth/service');
 const userRepository = require('./auth/user-repository');
 const errorHandler = require('./middleware/error-handler');
@@ -12,10 +12,11 @@ const { createActivityRouter } = require('./routes/activity');
 const { createFilesRouter } = require('./routes/files');
 const { createServices } = require('./services/create-services');
 const { readFileStorageConfig } = require('./files/config');
-const healthRouter = require('./routes/health');
+const { healthRouter, readinessRouter } = require('./routes/health');
 const { readRealtimeConfig } = require('./realtime/config');
 const { createRedisRuntime } = require('./realtime/redis');
 const { createRealtimeHub } = require('./realtime/hub');
+const { createRequestLogger } = require('./middleware/request-logger');
 
 function createApp({
   authService = createAuthService(userRepository, googleOAuth),
@@ -30,12 +31,15 @@ function createApp({
   const realtimeHub = providedRealtimeHub ?? createRealtimeHub({ authService, workspaceService: appServices.workspaces });
 
   app.disable('x-powered-by');
+  app.set('trust proxy', trustProxyHops);
+  app.use(createRequestLogger());
   app.use(cors({
     origin(origin, callback) {
       callback(null, origin === webOrigin ? origin : false);
     },
   }));
   app.use('/api/health', healthRouter);
+  app.use('/api/ready', readinessRouter);
   app.use('/api/workspaces', createFilesRouter(authService, appServices.files, fileStorageConfig));
   app.use(express.json({ limit: '100kb' }));
   app.use('/api/auth', createAuthRouter(authService, {

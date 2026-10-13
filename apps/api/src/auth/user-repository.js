@@ -84,6 +84,38 @@ async function findUserBySessionTokenHash(tokenHash) {
   return mapUser(rows[0]);
 }
 
+async function createRealtimeTicket({ ticketHash, sessionTokenHash, userId, expiresAt }) {
+  const pool = getPool();
+  await pool.query('DELETE FROM realtime_tickets WHERE expires_at <= NOW()');
+  const { rowCount } = await pool.query(
+    `INSERT INTO realtime_tickets (ticket_hash, session_token_hash, user_id, expires_at)
+     SELECT $1, session.token_hash, session.user_id, $4
+     FROM auth_sessions AS session
+     WHERE session.token_hash = $2 AND session.user_id = $3 AND session.expires_at > NOW()`,
+    [ticketHash, sessionTokenHash, userId, expiresAt],
+  );
+  return rowCount === 1;
+}
+
+async function consumeRealtimeTicket(ticketHash) {
+  const { rows } = await getPool().query(
+    `WITH consumed AS (
+       DELETE FROM realtime_tickets AS ticket
+       USING auth_sessions AS session
+       WHERE ticket.ticket_hash = $1
+         AND ticket.expires_at > NOW()
+         AND session.token_hash = ticket.session_token_hash
+         AND session.user_id = ticket.user_id
+         AND session.expires_at > NOW()
+       RETURNING ticket.user_id, ticket.session_token_hash
+     )
+     SELECT users.id, consumed.session_token_hash
+     FROM consumed JOIN users ON users.id = consumed.user_id`,
+    [ticketHash],
+  );
+  return rows[0] ? { userId: rows[0].id, sessionTokenHash: rows[0].session_token_hash } : null;
+}
+
 async function createGoogleOAuthState({ stateHash, nonce, codeVerifier, expiresAt }) {
   const pool = getPool();
   await pool.query('DELETE FROM google_oauth_states WHERE expires_at <= NOW()');
@@ -151,10 +183,12 @@ module.exports = {
   createGoogleOAuthState,
   createSession,
   createSessionAndAudit,
+  createRealtimeTicket,
   createUserAndSession,
   findOrCreateGoogleUserAndSession,
   findUserByEmail,
   findUserBySessionTokenHash,
+  consumeRealtimeTicket,
   recordAuthAuditEvent,
   revokeSessionAndAudit,
 };

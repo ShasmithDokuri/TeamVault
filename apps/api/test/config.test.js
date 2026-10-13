@@ -1,4 +1,18 @@
-const { validateGoogleOAuthConfig } = require('../src/config');
+const { readTrustProxyHops, validateGoogleOAuthConfig } = require('../src/config');
+
+describe('reverse proxy configuration', () => {
+  test('defaults to not trusting forwarded headers', () => {
+    expect(readTrustProxyHops({})).toBe(0);
+  });
+
+  test('accepts a bounded, explicit proxy hop count', () => {
+    expect(readTrustProxyHops({ TRUST_PROXY_HOPS: '2' })).toBe(2);
+  });
+
+  test.each(['-1', '6', '1.5', 'true'])('rejects unsafe proxy hop value %s', (value) => {
+    expect(() => readTrustProxyHops({ TRUST_PROXY_HOPS: value })).toThrow();
+  });
+});
 
 describe('Google OAuth configuration', () => {
   const base = {

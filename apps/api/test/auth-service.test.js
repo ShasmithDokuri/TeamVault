@@ -51,6 +51,30 @@ describe('authentication service', () => {
     expect(repository.recordAuthAuditEvent).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'login_failure' }));
   });
 
+  test('issues short-lived realtime tickets bound to active sessions and stores only hashes', async () => {
+    const repository = {
+      findUserBySessionTokenHash: jest.fn().mockResolvedValue({ id: 'user-1' }),
+      createRealtimeTicket: jest.fn().mockResolvedValue(true),
+      consumeRealtimeTicket: jest.fn().mockResolvedValue({ userId: 'user-1', sessionTokenHash: 'f'.repeat(64) }),
+    };
+    const service = createAuthService(repository);
+    const token = 's'.repeat(43);
+    const result = await service.createRealtimeTicket(token);
+    const saved = repository.createRealtimeTicket.mock.calls[0][0];
+    expect(result.ticket).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(result.ticket).not.toBe(token);
+    expect(saved.ticketHash).toHaveLength(64);
+    expect(saved.ticketHash).not.toBe(result.ticket);
+    expect(saved.sessionTokenHash).not.toBe(token);
+    expect(saved.userId).toBe('user-1');
+    expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now() + 25_000);
+    expect(result.expiresAt.getTime()).toBeLessThan(Date.now() + 31_000);
+    await expect(service.consumeRealtimeTicket(result.ticket)).resolves.toMatchObject({ userId: 'user-1' });
+    expect(repository.consumeRealtimeTicket).toHaveBeenCalledWith(expect.any(String));
+    await expect(service.consumeRealtimeTicket('invalid')).resolves.toBeNull();
+    expect(repository.consumeRealtimeTicket).toHaveBeenCalledTimes(1);
+  });
+
   test('uses OAuth state, PKCE, nonce, and verified Google identity before session creation', async () => {
     const repository = {
       createGoogleOAuthState: jest.fn().mockResolvedValue(undefined),

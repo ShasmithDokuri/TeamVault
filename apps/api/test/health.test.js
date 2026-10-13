@@ -1,5 +1,7 @@
 const express = require('express');
 const request = require('supertest');
+jest.mock('../src/db/pool', () => ({ getPool: jest.fn() }));
+const { getPool } = require('../src/db/pool');
 const app = require('../src/app');
 const errorHandler = require('../src/middleware/error-handler');
 
@@ -35,6 +37,30 @@ describe('GET /api/health', () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ error: 'Invalid request' });
+  });
+});
+
+describe('GET /api/ready', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('returns ready only when PostgreSQL accepts a query', async () => {
+    getPool.mockReturnValue({ query: jest.fn().mockResolvedValue({ rows: [{ '?column?': 1 }] }) });
+
+    const response = await request(app).get('/api/ready');
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ status: 'ready' });
+    expect(getPool().query).toHaveBeenCalledWith({ text: 'SELECT 1', query_timeout: 2000 });
+  });
+
+  test('returns a safe unavailable response when PostgreSQL is not ready', async () => {
+    getPool.mockReturnValue({ query: jest.fn().mockRejectedValue(new Error('private database detail')) });
+
+    const response = await request(app).get('/api/ready');
+
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ status: 'not_ready' });
+    expect(JSON.stringify(response.body)).not.toContain('private database detail');
   });
 });
 

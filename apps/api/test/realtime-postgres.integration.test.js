@@ -86,14 +86,39 @@ describeWithDatabase('PostgreSQL realtime authorization integration', () => {
     expect(secondWorkspace.status).toBe(201);
     workspaceIds.push(firstWorkspace.body.workspace.id, secondWorkspace.body.workspace.id);
 
-    const firstSocket = connectSocket(`http://127.0.0.1:${port}`, { auth: { token: first.token }, transports: ['websocket'], reconnection: false });
-    const secondSocket = connectSocket(`http://127.0.0.1:${port}`, { auth: { token: second.token }, transports: ['websocket'], reconnection: false });
+    async function browserTicket(fixture) {
+      const response = await request(app).post('/api/auth/realtime-ticket')
+        .set('Origin', 'http://localhost:5173')
+        .set('Cookie', `tv_session=${fixture.token}`);
+      expect(response.status).toBe(201);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body).not.toHaveProperty('accessToken');
+      return response.body.ticket;
+    }
+    const firstTicket = await browserTicket(first);
+    const secondTicket = await browserTicket(second);
+
+    const firstSocket = connectSocket(`http://127.0.0.1:${port}`, {
+      auth: { ticket: firstTicket }, extraHeaders: { Origin: 'http://localhost:5173' },
+      transports: ['websocket'], reconnection: false,
+    });
+    const secondSocket = connectSocket(`http://127.0.0.1:${port}`, {
+      auth: { ticket: secondTicket }, extraHeaders: { Origin: 'http://localhost:5173' },
+      transports: ['websocket'], reconnection: false,
+    });
     sockets.push(firstSocket, secondSocket);
     await Promise.all([waitFor(firstSocket, 'connect'), waitFor(secondSocket, 'connect')]);
     expect(await emitAck(firstSocket, { workspaceId: firstWorkspace.body.workspace.id })).toMatchObject({ ok: true });
     expect(await emitAck(secondSocket, { workspaceId: secondWorkspace.body.workspace.id })).toMatchObject({ ok: true });
     expect(await emitAck(secondSocket, { workspaceId: firstWorkspace.body.workspace.id }))
       .toEqual({ ok: false, error: 'workspace_not_found' });
+
+    const replayedTicket = connectSocket(`http://127.0.0.1:${port}`, {
+      auth: { ticket: firstTicket }, extraHeaders: { Origin: 'http://localhost:5173' },
+      transports: ['websocket'], reconnection: false,
+    });
+    sockets.push(replayedTicket);
+    await expect(waitFor(replayedTicket, 'connect_error')).resolves.toBeTruthy();
 
     const firstEvent = waitFor(firstSocket, 'workspace:event');
     const noCrossWorkspaceEvent = waitFor(secondSocket, 'workspace:event', 120);
@@ -106,7 +131,25 @@ describeWithDatabase('PostgreSQL realtime authorization integration', () => {
     expect((await firstEvent).workspaceId).toBe(firstWorkspace.body.workspace.id);
     await expect(noCrossWorkspaceEvent).rejects.toThrow('timeout');
 
+    const expiredTicket = await authService.createRealtimeTicket(second.token);
+    await pool.query('UPDATE realtime_tickets SET expires_at = NOW() - INTERVAL \'1 second\' WHERE ticket_hash = $1', [
+      require('../src/auth/tokens').hashSessionToken(expiredTicket.ticket),
+    ]);
+    const expiredSocket = connectSocket(`http://127.0.0.1:${port}`, {
+      auth: { ticket: expiredTicket.ticket }, extraHeaders: { Origin: 'http://localhost:5173' },
+      transports: ['websocket'], reconnection: false,
+    });
+    sockets.push(expiredSocket);
+    await expect(waitFor(expiredSocket, 'connect_error')).resolves.toBeTruthy();
+
+    const revokedTicket = await authService.createRealtimeTicket(first.token);
     await authService.logout(first.token, first.id);
+    const revokedSocket = connectSocket(`http://127.0.0.1:${port}`, {
+      auth: { ticket: revokedTicket.ticket }, extraHeaders: { Origin: 'http://localhost:5173' },
+      transports: ['websocket'], reconnection: false,
+    });
+    sockets.push(revokedSocket);
+    await expect(waitFor(revokedSocket, 'connect_error')).resolves.toBeTruthy();
     const noRevokedSessionEvent = waitFor(firstSocket, 'workspace:event', 120);
     await app.locals.teamVaultRuntime.realtimeHub.publishWorkspaceEvent({
       workspaceId: firstWorkspace.body.workspace.id,

@@ -85,6 +85,23 @@ function createAuthService(repository, googleConfig = {}, injectedGoogleClient) 
       return repository.findUserBySessionTokenHash(tokenHash);
     },
 
+    async createRealtimeTicket(token) {
+      const sessionTokenHash = hashSessionToken(token);
+      const user = await repository.findUserBySessionTokenHash(sessionTokenHash);
+      if (!user) return null;
+      const ticket = randomBytes(32).toString('base64url');
+      const expiresAt = new Date(Date.now() + 30 * 1000);
+      const created = await repository.createRealtimeTicket({
+        ticketHash: hashSessionToken(ticket), sessionTokenHash, userId: user.id, expiresAt,
+      });
+      return created ? { ticket, expiresAt } : null;
+    },
+
+    async consumeRealtimeTicket(ticket) {
+      if (typeof ticket !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(ticket)) return null;
+      return repository.consumeRealtimeTicket(hashSessionToken(ticket));
+    },
+
     async logout(token, userId) {
       await repository.revokeSessionAndAudit({ tokenHash: hashSessionToken(token), userId });
     },

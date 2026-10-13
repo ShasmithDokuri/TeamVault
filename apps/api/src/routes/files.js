@@ -95,7 +95,7 @@ async function uploadFile(request, response, next, service, taskId, maxFileBytes
   const upload = validateUpload({
     body: request.body,
     contentType: request.get('content-type'),
-    originalName: request.get('x-file-name'),
+    originalName: decodeOriginalName(request),
     maxFileBytes: maxFileBytes ?? 10 * 1024 * 1024,
   });
   if (!upload) return invalid(response);
@@ -118,7 +118,7 @@ async function retryFile(request, response, next, service, taskId, maxFileBytes)
   const upload = validateUpload({
     body: request.body,
     contentType: request.get('content-type'),
-    originalName: request.get('x-file-name'),
+    originalName: decodeOriginalName(request),
     maxFileBytes: maxFileBytes ?? 10 * 1024 * 1024,
   });
   if (!upload) return invalid(response);
@@ -201,6 +201,12 @@ function encodeRFC5987(value) {
   return encodeURIComponent(value).replace(/[!'()*]/gu, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
+function decodeOriginalName(request) {
+  const value = request.get('x-file-name');
+  if (request.get('x-file-name-encoding') !== 'percent-utf8') return value;
+  try { return decodeURIComponent(value); } catch { return null; }
+}
+
 function handleError(error, response, next) {
   if (error instanceof FileStorageUnavailableError) {
     return response.status(503).json({ error: 'File storage is unavailable.' });
@@ -211,4 +217,4 @@ function handleError(error, response, next) {
 function invalid(response) { return response.status(400).json({ error: 'Invalid file upload.' }); }
 function notFound(response) { return response.status(404).json({ error: 'File, project, task, or workspace not found.' }); }
 
-module.exports = { createBoundedUploadParser, createFilesRouter, encodeRFC5987, preauthorizeUpload, publicFile };
+module.exports = { createBoundedUploadParser, createFilesRouter, decodeOriginalName, encodeRFC5987, preauthorizeUpload, publicFile };

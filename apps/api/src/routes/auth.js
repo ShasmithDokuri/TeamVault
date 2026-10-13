@@ -53,6 +53,20 @@ function createAuthRouter(authService, { rateLimitStore, realtimeHub, cookieSecu
     response.status(200).json({ user: request.auth.user });
   });
 
+  router.post('/realtime-ticket', requireAuth, async (request, response, next) => {
+    if (request.auth.method !== 'cookie') {
+      return response.status(403).json({ error: 'Browser session required.' });
+    }
+    try {
+      const result = await authService.createRealtimeTicket(request.auth.token);
+      if (!result) return response.status(401).json({ error: 'Authentication required.' });
+      response.set('Cache-Control', 'no-store');
+      return response.status(201).json(result);
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   router.post('/logout', requireAuth, async (request, response, next) => {
     try {
       await authService.logout(request.auth.token, request.auth.user.id);

@@ -25,7 +25,9 @@ describe('realtime security and Redis fallback', () => {
     sessions = true;
     clients = [];
     const authService = {
-      authenticate: jest.fn(async (token) => token === TOKEN ? { id: 'user-1' } : null),
+      consumeRealtimeTicket: jest.fn(async (ticket) => ticket === 't'.repeat(43) && sessions
+        ? { userId: 'user-1', sessionTokenHash: require('../src/auth/tokens').hashSessionToken(TOKEN) }
+        : null),
       authenticateSessionHash: jest.fn(async (hash) => hash && sessions ? { id: 'user-1' } : null),
     };
     const workspaceService = {
@@ -44,8 +46,11 @@ describe('realtime security and Redis fallback', () => {
     await new Promise((resolve) => socketServer.close(resolve));
   });
 
-  function connect(auth) {
-    const client = createSocket(`http://127.0.0.1:${port}`, { auth, transports: ['websocket'], forceNew: true, reconnection: false });
+  function connect(auth, origin = 'http://localhost:5173') {
+    const client = createSocket(`http://127.0.0.1:${port}`, {
+      auth, extraHeaders: { Origin: origin },
+      transports: ['websocket'], forceNew: true, reconnection: false,
+    });
     clients.push(client);
     return client;
   }
@@ -54,7 +59,10 @@ describe('realtime security and Redis fallback', () => {
     const unauthenticated = connect({});
     await expectOnce(unauthenticated, 'connect_error');
 
-    const client = connect({ token: TOKEN, workspaceId: OTHER_WORKSPACE });
+    const wrongOrigin = connect({ ticket: 't'.repeat(43) }, 'https://attacker.example');
+    await expectOnce(wrongOrigin, 'connect_error');
+
+    const client = connect({ ticket: 't'.repeat(43), workspaceId: OTHER_WORKSPACE });
     await waitFor(client, 'connect');
     const denied = await emitAck(client, 'workspace:subscribe', { workspaceId: OTHER_WORKSPACE });
     expect(denied).toEqual({ ok: false, error: 'workspace_not_found' });
@@ -64,7 +72,7 @@ describe('realtime security and Redis fallback', () => {
   });
 
   test('delivers only sanitized workspace events and stops after membership revocation', async () => {
-    const authorized = connect({ token: TOKEN });
+    const authorized = connect({ ticket: 't'.repeat(43) });
     await waitFor(authorized, 'connect');
     await emitAck(authorized, 'workspace:subscribe', { workspaceId: WORKSPACE });
     const eventPromise = waitFor(authorized, 'workspace:event');
@@ -82,7 +90,7 @@ describe('realtime security and Redis fallback', () => {
 
     members.add(`user-1:${WORKSPACE}`);
     await emitAck(authorized, 'workspace:subscribe', { workspaceId: WORKSPACE });
-    const revokedProbe = connect({ token: TOKEN });
+    const revokedProbe = connect({ ticket: 't'.repeat(43) });
     await waitFor(revokedProbe, 'connect');
     await emitAck(revokedProbe, 'workspace:subscribe', { workspaceId: WORKSPACE });
     sessions = false;
@@ -138,13 +146,15 @@ describe('realtime security and Redis fallback', () => {
     };
     const localHub = createRealtimeHub({
       authService: {
-        authenticate: async () => ({ id: 'user-1' }),
+        consumeRealtimeTicket: async () => ({ userId: 'user-1', sessionTokenHash: require('../src/auth/tokens').hashSessionToken(TOKEN) }),
         authenticateSessionHash: async () => ({ id: 'user-1' }),
       },
       workspaceService: { getWorkspaceForMember: async () => ({ id: WORKSPACE }) },
     });
     localHub.attach(fakeIo);
-    await new Promise((resolve, reject) => middleware({ handshake: { auth: { token: TOKEN } }, data: {} }, (error) => error ? reject(error) : resolve()));
+    await new Promise((resolve, reject) => middleware({
+      handshake: { auth: { ticket: 't'.repeat(43) }, headers: { origin: 'http://localhost:5173' } }, data: {},
+    }, (error) => error ? reject(error) : resolve()));
     onConnection(fakeSocket);
     await expect(localHub.publishWorkspaceEvent({ workspaceId: WORKSPACE, resourceType: 'project', resourceId: RESOURCE, action: 'created' }))
       .resolves.toBe(true);

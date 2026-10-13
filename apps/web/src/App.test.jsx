@@ -3,6 +3,9 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from './App.jsx';
 
+const realtime = vi.hoisted(() => ({ useWorkspaceRealtime: vi.fn(() => 'disconnected') }));
+vi.mock('./useWorkspaceRealtime.js', () => realtime);
+
 const ids = {
   workspace: '11111111-1111-4111-8111-111111111111',
   project: '22222222-2222-4222-8222-222222222222',
@@ -20,7 +23,7 @@ function installBackend() {
     authenticated: false,
     workspaces: [],
     members: [{ user_id: ids.owner, email: 'owner@example.com', display_name: 'Owner', role: 'owner' }],
-    projects: [], tasks: [],
+    projects: [], tasks: [], comments: [], files: [],
   };
   const fetchMock = vi.fn(async (url, options = {}) => {
     const path = String(url); const method = options.method || 'GET';
@@ -52,6 +55,15 @@ function installBackend() {
       const task = { id: ids.task, projectId: ids.project, workspaceId: ids.workspace, version: 1, ...body };
       state.tasks.push(task); fetchMock.taskBody = body; return reply(201, { task });
     }
+    if (path.includes('/activity?')) return reply(200, { events: [] });
+    if (path.includes('/comments')) {
+      if (method === 'GET') return reply(200, { comments: state.comments });
+      if (method === 'POST') {
+        const comment = { id: `comment-${state.comments.length + 1}`, authorId: ids.owner, version: 1, createdAt: '2026-01-01T00:00:00.000Z', content: body.content };
+        state.comments.push(comment); return reply(201, { comment });
+      }
+    }
+    if (path.includes('/files') && method === 'GET') return reply(200, { files: state.files });
     return reply(404, { error: 'Not found' });
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -86,6 +98,7 @@ describe('TeamVault browser workflows', () => {
     const workspaceLink = workspaceLinks.find((link) => link.classList.contains('workspace-card'));
     await user.click(workspaceLink);
     await screen.findByRole('heading', { name: 'Design team' });
+    await waitFor(() => expect(realtime.useWorkspaceRealtime).toHaveBeenLastCalledWith(ids.workspace, expect.any(Function)));
 
     await user.type(screen.getByLabelText('Member email'), 'new.person@example.com');
     await user.selectOptions(screen.getByLabelText('Role'), 'admin');

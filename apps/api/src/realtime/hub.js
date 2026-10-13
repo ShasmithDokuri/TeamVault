@@ -1,32 +1,33 @@
 const { randomUUID } = require('node:crypto');
-const { hashSessionToken } = require('../auth/tokens');
+const { webOrigin } = require('../config');
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const RESOURCE_TYPES = new Set(['project', 'task', 'comment', 'member']);
 const ACTIONS = new Set(['created', 'updated', 'deleted']);
 const MAX_WORKSPACE_SUBSCRIPTIONS = 20;
 
-function createRealtimeHub({ authService, workspaceService }) {
+function createRealtimeHub({ authService, workspaceService, allowedOrigin = webOrigin }) {
   let io;
 
   return Object.freeze({
     attach(socketServer) {
       io = socketServer;
       io.use(async (socket, next) => {
-        const token = socket.handshake.auth?.token;
+        const ticket = socket.handshake.auth?.ticket;
         socket.handshake.auth = {};
-        if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(token)) {
+        if (socket.handshake.headers.origin !== allowedOrigin
+          || typeof ticket !== 'string' || !/^[A-Za-z0-9_-]{43}$/u.test(ticket)) {
           next(new Error('Authentication required.'));
           return;
         }
         try {
-          const user = await authService.authenticate(token);
-          if (!user) {
+          const session = await authService.consumeRealtimeTicket(ticket);
+          if (!session) {
             next(new Error('Authentication required.'));
             return;
           }
-          socket.data.userId = user.id;
-          socket.data.sessionTokenHash = hashSessionToken(token);
+          socket.data.userId = session.userId;
+          socket.data.sessionTokenHash = session.sessionTokenHash;
           socket.data.workspaceIds = [];
           socket.data.workspaceSubscriptionsPending = new Set();
           next();

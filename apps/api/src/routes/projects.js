@@ -68,7 +68,6 @@ function createProjectsRouter(authService, projectService = createProjectService
         actorId: request.auth.user.id,
       });
       if (!project) return notFound(response);
-      publish(realtimeHub, request.params.workspaceId, 'project', project.id, 'updated');
       return response.status(200).json({ project });
     } catch (error) {
       return next(error);
@@ -98,7 +97,9 @@ function createProjectsRouter(authService, projectService = createProjectService
         name,
         description,
       });
-      return project ? response.status(200).json({ project }) : notFound(response);
+      if (!project) return notFound(response);
+      publish(realtimeHub, request.params.workspaceId, 'project', project.id, 'updated');
+      return response.status(200).json({ project });
     } catch (error) {
       return next(error);
     }

@@ -11,6 +11,7 @@ function makeService(overrides = {}) {
     }),
     login: jest.fn().mockResolvedValue(null),
     authenticate: jest.fn().mockResolvedValue(null),
+    createRealtimeTicket: jest.fn().mockResolvedValue(null),
     logout: jest.fn().mockResolvedValue(undefined),
     beginGoogleOAuth: jest.fn(),
     completeGoogleOAuth: jest.fn(),
@@ -103,6 +104,32 @@ describe('authentication routes', () => {
     expect(logout.status).toBe(204);
     expect(authService.logout).toHaveBeenCalledWith('c'.repeat(43), 'user-1');
     expect(logout.headers['set-cookie'][0]).toContain('Max-Age=0');
+  });
+
+  test('issues a short-lived realtime ticket only for an authorized same-origin cookie session', async () => {
+    const authService = makeService({
+      authenticate: jest.fn().mockResolvedValue({ id: 'user-1', email: 'person@example.com' }),
+      createRealtimeTicket: jest.fn().mockResolvedValue({ ticket: 't'.repeat(43), expiresAt: new Date('2030-01-01T00:00:30.000Z') }),
+    });
+    const app = createApp({ authService });
+    const cookie = `tv_session=${'c'.repeat(43)}`;
+    const wrongOrigin = await request(app).post('/api/auth/realtime-ticket')
+      .set('Origin', 'https://attacker.example').set('Cookie', cookie);
+    expect(wrongOrigin.status).toBe(403);
+    expect(authService.createRealtimeTicket).not.toHaveBeenCalled();
+
+    const bearer = await request(app).post('/api/auth/realtime-ticket')
+      .set('Authorization', `Bearer ${'b'.repeat(43)}`).set('Origin', 'http://localhost:5173');
+    expect(bearer.status).toBe(403);
+    expect(authService.createRealtimeTicket).not.toHaveBeenCalled();
+
+    const response = await request(app).post('/api/auth/realtime-ticket')
+      .set('Origin', 'http://localhost:5173').set('Cookie', cookie);
+    expect(response.status).toBe(201);
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.body.ticket).toHaveLength(43);
+    expect(response.body).not.toHaveProperty('accessToken');
+    expect(authService.createRealtimeTicket).toHaveBeenCalledWith('c'.repeat(43));
   });
 
   test('rejects wrong-origin cookie login before creating a session and blocks cookie-authenticated CSRF requests', async () => {

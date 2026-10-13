@@ -12,6 +12,7 @@ if (process.env.COOKIE_SECURE !== undefined && !['true', 'false'].includes(proce
   throw new Error('COOKIE_SECURE must be true or false.');
 }
 const databaseUrl = process.env.DATABASE_URL;
+const trustProxyHops = readTrustProxyHops(process.env);
 
 const googleOAuth = {
   clientId: process.env.GOOGLE_CLIENT_ID,
@@ -54,4 +55,12 @@ function validateGoogleOAuthConfig(config) {
 
 validateGoogleOAuthConfig(googleOAuth);
 
-module.exports = { cookieSecure, databaseUrl, googleOAuth, port, validateGoogleOAuthConfig, webOrigin };
+function readTrustProxyHops(env) {
+  const hops = env.TRUST_PROXY_HOPS === undefined ? 0 : Number(env.TRUST_PROXY_HOPS);
+  if (!Number.isInteger(hops) || hops < 0 || hops > 5) {
+    throw new Error('TRUST_PROXY_HOPS must be an integer between 0 and 5.');
+  }
+  return hops;
+}
+
+module.exports = { cookieSecure, databaseUrl, googleOAuth, port, readTrustProxyHops, trustProxyHops, validateGoogleOAuthConfig, webOrigin };

@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext.jsx';
 import { api } from './api.js';
+import { ActivityFeed, CommentPanel, FilePanel } from './CollaborationPanels.jsx';
+import { useWorkspaceRealtime } from './useWorkspaceRealtime.js';
 
 export default function App() { return <AuthProvider><BrowserRouter><AppRoutes /></BrowserRouter></AuthProvider>; }
 
@@ -60,7 +62,11 @@ function AuthPage({ mode }) {
 }
 
 function AppShell() {
-  const { user, logout } = useAuth(); const [workspaces, setWorkspaces] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [refreshKey, setRefreshKey] = useState(0); const navigate = useNavigate();
+  const { user, logout } = useAuth(); const { pathname } = useLocation();
+  const workspaceId = pathname.match(/^\/app\/workspaces\/([0-9a-f-]{36})(?:\/|$)/iu)?.[1];
+  const [workspaces, setWorkspaces] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [refreshKey, setRefreshKey] = useState(0); const [resourceRefreshKey, setResourceRefreshKey] = useState(0); const navigate = useNavigate();
+  const onResourceChanged = useCallback(() => setResourceRefreshKey((value) => value + 1), []);
+  const realtimeStatus = useWorkspaceRealtime(workspaceId, onResourceChanged);
   useEffect(() => { let active = true; api.workspaces.list().then(({ workspaces: rows }) => { if (active) { setWorkspaces(rows); setError(''); } }).catch((cause) => { if (active) setError(cause.message); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [refreshKey]);
   async function signOut() { try { await logout(); } finally { navigate('/login', { replace: true }); } }
   const refreshWorkspaces = () => setRefreshKey((value) => value + 1);
@@ -70,7 +76,7 @@ function AppShell() {
       {loading && <span className="nav-muted">Loading…</span>}{!loading && workspaces.map((workspace) => <Link className="nav-link workspace-link" key={workspace.id} to={`/app/workspaces/${workspace.id}`}><span className="workspace-avatar">{workspace.name.slice(0, 1).toUpperCase()}</span><span className="truncate">{workspace.name}</span></Link>)}{!loading && !workspaces.length && <span className="nav-muted">No workspaces yet</span>}
     </nav>
     <div className="sidebar-footer"><span className="avatar">{initials(user.displayName || user.email)}</span><span className="user-label"><strong>{user.displayName || user.email.split('@')[0]}</strong><small>{user.email}</small></span><button className="icon-button" aria-label="Sign out" title="Sign out" onClick={signOut}>↗</button></div>
-  </aside><main className="main-panel"><header className="topbar"><div><span className="topbar-label">TEAMVAULT</span><span className="topbar-caption">Workspace collaboration</span></div><button className="button secondary small" onClick={signOut}>Sign out</button></header><section className="content-area">{error && <Notice role="alert">{error}</Notice>}<Outlet context={{ workspaces, refreshWorkspaces }} /></section></main></div>;
+  </aside><main className="main-panel"><header className="topbar"><div><span className="topbar-label">TEAMVAULT</span><span className="topbar-caption">Workspace collaboration</span></div><button className="button secondary small" onClick={signOut}>Sign out</button></header><section className="content-area">{error && <Notice role="alert">{error}</Notice>}<Outlet context={{ workspaces, refreshWorkspaces, resourceRefreshKey, realtimeStatus }} /></section></main></div>;
 }
 
 function Dashboard() {
@@ -85,15 +91,15 @@ function Dashboard() {
 }
 
 function WorkspacePage() {
-  const { workspaceId } = useParams(); const { refreshWorkspaces } = useOutletContext();
+  const { workspaceId } = useParams(); const { refreshWorkspaces, resourceRefreshKey, realtimeStatus } = useOutletContext();
   const [workspace, setWorkspace] = useState(null); const [members, setMembers] = useState([]); const [projects, setProjects] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   async function reload() { const [w, m, p] = await Promise.all([api.workspaces.get(workspaceId), api.workspaces.members(workspaceId), api.projects.list(workspaceId)]); setWorkspace(w.workspace); setMembers(m.members); setProjects(p.projects); }
-  useEffect(() => { let active = true; Promise.all([api.workspaces.get(workspaceId), api.workspaces.members(workspaceId), api.projects.list(workspaceId)]).then(([w,m,p]) => { if (active) { setWorkspace(w.workspace); setMembers(m.members); setProjects(p.projects); } }).catch((cause) => { if (active) setError(cause.message); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [workspaceId]);
+  useEffect(() => { let active = true; Promise.all([api.workspaces.get(workspaceId), api.workspaces.members(workspaceId), api.projects.list(workspaceId)]).then(([w,m,p]) => { if (active) { setWorkspace(w.workspace); setMembers(m.members); setProjects(p.projects); } }).catch((cause) => { if (active) setError(cause.message); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [workspaceId, resourceRefreshKey]);
   async function action(work) { setError(''); try { const value = await work(); await reload(); refreshWorkspaces(); return value; } catch (cause) { setError(cause.message); throw cause; } }
   if (loading) return <CenteredState>Loading workspace…</CenteredState>;
   if (!workspace) return <><PageHeading eyebrow="WORKSPACE" title="Workspace unavailable" description={error || 'You may not have access to this workspace.'} /><Link className="button secondary" to="/app">Back to overview</Link></>;
   const manager = ['owner', 'admin'].includes(workspace.role); const owner = workspace.role === 'owner';
-  return <><PageHeading eyebrow={`WORKSPACE · ${workspace.role.toUpperCase()}`} title={workspace.name} description="Manage this workspace’s members, projects, and shared work." />{error && <Notice role="alert">{error}</Notice>}
+  return <><RealtimeStatus status={realtimeStatus} /><PageHeading eyebrow={`WORKSPACE · ${workspace.role.toUpperCase()}`} title={workspace.name} description="Manage this workspace’s members, projects, and shared work." />{error && <Notice role="alert">{error}</Notice>}
     <section className="section-card"><div className="section-header"><div><h2>Projects</h2><p className="muted">Tasks and project details are visible to workspace members.</p></div><span className="count-pill">{projects.length}</span></div>
       {projects.length ? <div className="project-grid">{projects.map((project) => <Link key={project.id} className="project-card" to={`/app/workspaces/${workspaceId}/projects/${project.id}`}><span className="project-icon">▦</span><strong>{project.name}</strong><p>{project.description || 'A shared project workspace.'}</p><span className="project-open">Open project →</span></Link>)}</div> : <EmptyState title="No projects yet" text="Create the first project to start organizing work." />}
       {manager && <ProjectCreate workspaceId={workspaceId} onCreated={reload} />}
@@ -102,6 +108,7 @@ function WorkspacePage() {
       <MemberList members={members} workspaceId={workspaceId} requesterRole={workspace.role} onChange={action} />{manager && <MemberCreate workspaceId={workspaceId} requesterRole={workspace.role} onCreated={reload} />}
     </section>
     {manager && <WorkspaceSettings workspace={workspace} owner={owner} onChange={action} onDeleted={refreshWorkspaces} />}
+    <ActivityFeed workspaceId={workspaceId} refreshKey={resourceRefreshKey} />
   </>;
 }
 
@@ -132,16 +139,17 @@ function WorkspaceSettings({ workspace, owner, onChange, onDeleted }) {
 }
 
 function ProjectPage() {
-  const { workspaceId, projectId } = useParams(); const { workspaces } = useOutletContext(); const workspace = workspaces.find((item) => item.id === workspaceId);
+  const { workspaceId, projectId } = useParams(); const { workspaces, resourceRefreshKey, realtimeStatus } = useOutletContext(); const { user } = useAuth(); const workspace = workspaces.find((item) => item.id === workspaceId);
   const [project, setProject] = useState(null); const [tasks, setTasks] = useState([]); const [members, setMembers] = useState([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   async function reload() { const [p,t,m] = await Promise.all([api.projects.get(workspaceId, projectId), api.projects.tasks(workspaceId, projectId), api.workspaces.members(workspaceId)]); setProject(p.project); setTasks(t.tasks); setMembers(m.members); }
-  useEffect(() => { let active = true; Promise.all([api.projects.get(workspaceId, projectId), api.projects.tasks(workspaceId, projectId), api.workspaces.members(workspaceId)]).then(([p,t,m]) => { if (active) { setProject(p.project); setTasks(t.tasks); setMembers(m.members); } }).catch((cause) => { if (active) setError(cause.message); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [workspaceId, projectId]);
+  useEffect(() => { let active = true; Promise.all([api.projects.get(workspaceId, projectId), api.projects.tasks(workspaceId, projectId), api.workspaces.members(workspaceId)]).then(([p,t,m]) => { if (active) { setProject(p.project); setTasks(t.tasks); setMembers(m.members); } }).catch((cause) => { if (active) setError(cause.message); }).finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, [workspaceId, projectId, resourceRefreshKey]);
   async function action(work) { setError(''); try { const value = await work(); await reload(); return value; } catch (cause) { setError(cause.message); if (cause.status === 409) { try { await reload(); } catch {} } throw cause; } }
   if (loading) return <CenteredState>Loading project…</CenteredState>;
   if (!project) return <><PageHeading eyebrow="PROJECT" title="Project unavailable" description={error || 'This project may have been removed or is outside your workspace.'} /><Link className="button secondary" to={`/app/workspaces/${workspaceId}`}>Back to workspace</Link></>;
   const manager = ['owner', 'admin'].includes(workspace?.role);
-  return <><nav className="breadcrumbs" aria-label="Breadcrumb"><Link to="/app">Overview</Link><span>/</span><Link to={`/app/workspaces/${workspaceId}`}>{workspace?.name || 'Workspace'}</Link><span>/</span><span>{project.name}</span></nav><PageHeading eyebrow="PROJECT" title={project.name} description={project.description || 'Plan work and track progress with your team.'} />{error && <Notice role="alert">{error}</Notice>}
-    <section className="section-card"><div className="section-header"><div><h2>Tasks</h2><p className="muted">Task updates use version checks to protect concurrent edits.</p></div><span className="count-pill">{tasks.length}</span></div>{tasks.length ? <div className="task-list">{tasks.map((task) => <TaskRow key={task.id} task={task} members={members} workspaceId={workspaceId} projectId={projectId} manager={manager} onChange={action} />)}</div> : <EmptyState title="No tasks yet" text="Create a task to start tracking this project." />}<TaskCreate workspaceId={workspaceId} projectId={projectId} members={members} onCreated={reload} /></section>
+  return <><RealtimeStatus status={realtimeStatus} /><nav className="breadcrumbs" aria-label="Breadcrumb"><Link to="/app">Overview</Link><span>/</span><Link to={`/app/workspaces/${workspaceId}`}>{workspace?.name || 'Workspace'}</Link><span>/</span><span>{project.name}</span></nav><PageHeading eyebrow="PROJECT" title={project.name} description={project.description || 'Plan work and track progress with your team.'} />{error && <Notice role="alert">{error}</Notice>}
+    <section className="section-card"><div className="section-header"><div><h2>Tasks</h2><p className="muted">Task updates use version checks to protect concurrent edits.</p></div><span className="count-pill">{tasks.length}</span></div>{tasks.length ? <div className="task-list">{tasks.map((task) => <article className="task-block" key={task.id}><TaskRow task={task} members={members} workspaceId={workspaceId} projectId={projectId} manager={manager} onChange={action} /><details className="task-collaboration"><summary>Comments and files for this task</summary><CommentPanel workspaceId={workspaceId} projectId={projectId} taskId={task.id} user={user} manager={manager} refreshKey={resourceRefreshKey} /><FilePanel workspaceId={workspaceId} projectId={projectId} taskId={task.id} user={user} manager={manager} refreshKey={resourceRefreshKey} /></details></article>)}</div> : <EmptyState title="No tasks yet" text="Create a task to start tracking this project." />}<TaskCreate workspaceId={workspaceId} projectId={projectId} members={members} onCreated={reload} /></section>
+    <section className="section-card"><h2>Project discussion and files</h2><div className="collaboration-grid"><CommentPanel workspaceId={workspaceId} projectId={projectId} user={user} manager={manager} refreshKey={resourceRefreshKey} /><FilePanel workspaceId={workspaceId} projectId={projectId} user={user} manager={manager} refreshKey={resourceRefreshKey} /></div></section>
     {manager && <ProjectSettings project={project} workspaceId={workspaceId} onChange={action} />}
   </>;
 }
@@ -173,3 +181,10 @@ function CenteredState({ children }) { return <main className="centered-state" r
 function Field({ label, ...props }) { return <label className="field"><span>{label}</span><input {...props} /></label>; }
 function SelectField({ label, name, options, ...props }) { return <label className="field"><span>{label}</span><select name={name} {...props}>{options.map((option) => <option key={option} value={option}>{option.replace('_',' ')}</option>)}</select></label>; }
 function initials(name) { return name.split(/[\s@.]+/u).filter(Boolean).slice(0,2).map((part) => part[0].toUpperCase()).join(''); }
+function RealtimeStatus({ status }) {
+  if (!status || status === 'disconnected') return null;
+  const label = status === 'connected' ? 'Live updates connected'
+    : status === 'reconnecting' || status === 'connecting' ? 'Reconnecting to live updates…'
+      : 'Live updates unavailable; refresh to see changes';
+  return <p className={`realtime-status realtime-${status}`} role="status">{label}</p>;
+}
