@@ -1,168 +1,146 @@
 # TeamVault
 
-TeamVault is a multi-tenant collaboration application with a React browser client and an Express modular-monolith API. It includes authentication, workspace roles, projects, tasks, comments, activity, private file operations, and workspace-scoped realtime updates. AWS/EKS files are configuration only; no AWS resources are deployed by this repository workflow.
+**Secure, multi-tenant team collaboration and project management.**
 
-## Milestone 2 implementation plan
+TeamVault is a full-stack web application where teams can organize workspaces, manage projects and tasks, collaborate through comments, track activity, and share files privately. It focuses on workspace-level access control, secure authentication, and reliable collaboration workflows.
 
-- Keep the frontend and backend in separate npm workspaces under `apps/`.
-- Keep the backend a single Express application with routes organized by feature.
-- Start with a health route to verify local frontend-to-backend connectivity.
-- Read local settings from environment variables and keep `.env` files out of Git.
-- Add a small API test and production frontend build; defer later roadmap technologies to their milestones.
+**Live demo:** https://teamvault-unified.onrender.com
+**GitHub:** https://github.com/ShasmithDokuri/TeamVault
 
-## Milestone 3 authentication
+## Features
 
-The API provides `POST /api/auth/register`, `POST /api/auth/login`, `GET /api/auth/me`, and `POST /api/auth/logout`. Sessions use random opaque bearer tokens with a 15-minute lifetime; only their SHA-256 hashes are stored in PostgreSQL. Passwords are hashed with Node.js scrypt. Registration, successful and failed logins, Google login, and logout are recorded in the auth audit table without storing credentials or email addresses. Authentication attempts use a shared Redis limiter when `REDIS_URL` is configured, and fall back to per-process memory if Redis is unavailable.
+- **Authentication:** Email/password registration and login, session management, logout, and optional Google OAuth.
+- **Workspaces and roles:** Create workspaces and manage members with Owner, Admin, Manager, and Member roles.
+- **Projects and tasks:** Create projects, assign tasks, set priorities and statuses, and track task versions.
+- **Collaboration:** Project/task comments and a workspace activity feed.
+- **Private file sharing:** Upload and download supported files through authenticated API endpoints without exposing public object URLs.
+- **Real-time updates:** Workspace-scoped Socket.IO events with session and membership checks.
+- **Reliable event processing:** PostgreSQL transactional outbox and an optional Kafka relay.
+- **Testing and CI:** API and frontend tests, PostgreSQL integration tests, browser E2E tests, build checks, and GitHub Actions workflows.
 
-Authenticated clients may connect to the API's Socket.IO endpoint using `auth: { token: accessToken }`, then emit `workspace:subscribe` with a workspace ID. The server verifies the session and current PostgreSQL membership at connection/subscription time, and rechecks both before sending each resource-change hint. Hints contain identifiers and event type only; clients must fetch current details through the API. Hints are best-effort and are not replayed after a disconnect; clients should reload current state after reconnecting. `REDIS_URL` is optional; without Redis, live delivery and rate limits are local to one API process. If Redis fails while configured, the limiter falls back to per-process memory, so the shared authentication-attempt ceiling is weaker across multiple API instances until Redis recovers. Redis outages do not block PostgreSQL-backed API writes.
+## Tech Stack
 
-Redis URLs support `redis://` and `rediss://`; use TLS and ACL credentials for shared or production Redis. Keep the URL in an ignored local `.env` file or deployment secret manager. The Socket.IO Redis adapter transports an internal SHA-256 session verifier between trusted API instances so the receiving instance can reject revoked/expired sessions. Protect Redis with network isolation, TLS, and least-privilege ACLs; the verifier is never sent to clients or included in live event payloads. Redis connection logs report only availability transitions and omit error details and connection URLs.
+| Layer | Technologies |
+|---|---|
+| Frontend | React, Vite, JavaScript |
+| Backend | Node.js, Express |
+| Database | PostgreSQL |
+| Authentication | Scrypt password hashing, opaque sessions, Google OAuth |
+| Real-time | Socket.IO, optional Redis adapter |
+| File storage | S3-compatible private object storage |
+| Event processing | PostgreSQL outbox, optional Kafka |
+| Testing | Jest, Vitest, Playwright, Supertest |
+| Infrastructure | Docker Compose, Terraform, Kubernetes/EKS configuration |
+| CI | GitHub Actions, Dependabot |
 
-Google sign-in is available at `GET /api/auth/google` when `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REDIRECT_URI` are all configured. The callback validates browser-bound one-time state, PKCE, the signed ID token's issuer, audience and expiry, verified email, and nonce. Redirect URIs must use HTTPS except for localhost development and must point to the callback route. The API returns a bearer token as JSON; a browser client should keep it out of URLs and use HTTPS outside local development. No browser login UI or refresh-token flow is included in this milestone.
+## Architecture
 
-Copy `apps/api/.env.example` to `apps/api/.env`, set `DATABASE_URL` to a PostgreSQL database, then run `npm run db:migrate --workspace @teamvault/api` before registering or logging in. Google credentials are optional and belong only in the ignored `.env` file or deployment secret configuration.
+```text
+Browser (React + Vite)
+          |
+          v
+     Express API
+          |
+    +-----+------------------+
+    |          |             |
+    v          v             v
+PostgreSQL  Private Files  Socket.IO
+    |
+    v
+Transactional Outbox
+    |
+    v
+Optional Kafka Relay
+```
 
-PostgreSQL integration tests run when `TEAMVAULT_TEST_DATABASE_URL` is set to the dedicated `teamvault_m3_review` database; they apply the numbered idempotent migrations and add uniquely named test records. They do not reset existing database contents. The workspace authorization test removes only a workspace created by that test, and leaves its uniquely named fixture users in place.
+The core backend is a modular Express application. Routes handle HTTP concerns, services define application operations, and repositories own database queries and authorization checks. Workspace-scoped access controls are enforced by the API and database queries.
 
-## Milestone 4 workspaces and RBAC
+Redis and Kafka are optional integrations. Terraform and Kubernetes/EKS files provide infrastructure configuration; their presence does not mean those resources have been deployed to AWS.
 
-Authenticated users can create and list workspaces, read a workspace they belong to, and manage its members through `/api/workspaces`. The creator becomes the workspace owner in the same database transaction as workspace creation. Owners and admins can rename a workspace; only owners can delete it. Owners can add members as admins or members and change non-owner roles. Admins can add or remove members, but cannot grant admin access, manage admins, or remove the owner. Members can read workspace details and membership only. The owner role cannot be assigned or removed through the member-management API.
+## Security Highlights
 
-Workspace and membership reads and writes bind both the workspace ID and the authenticated user ID in SQL authorization predicates. Nonmembers and callers without the required role receive the same not-found response, which avoids exposing whether another workspace or member exists. The migration enforces valid roles, workspace/user foreign keys, exactly one owner per workspace, and unique membership per user and workspace. PostgreSQL integration tests use the isolated `teamvault_m3_review` database, apply all numbered migrations, and leave uniquely identified fixtures in place without resetting database contents.
+- Passwords are hashed using Node.js `scrypt`.
+- Session tokens are generated using cryptographically secure randomness; session hashes are stored in PostgreSQL.
+- Workspace and project access is scoped to authenticated membership and permitted roles.
+- Task assignments are restricted to members of the relevant workspace.
+- Private file downloads pass through authenticated API routes.
+- Realtime subscriptions validate the session and workspace membership.
+- Authentication and collaboration flows have automated tests.
 
-## Milestone 5 projects and tasks
+See [SECURITY.md](SECURITY.md) for trust boundaries, implemented controls, and remaining security work.
 
-Projects are available at `/api/workspaces/:workspaceId/projects`; tasks are nested under `/api/workspaces/:workspaceId/projects/:projectId/tasks`. Workspace members can read projects and tasks. Owners and admins can create, update, and delete projects and delete tasks. All members can create and update tasks. Project names and task titles are required; task status is `todo`, `in_progress`, or `done`, and priority is `low`, `medium`, `high`, or `urgent`. Task updates require the current integer `version`; stale updates return `409` so concurrent edits do not silently overwrite each other. Task assignees must be current members of the project workspace; removing a member clears their task assignments.
+## Run Locally
 
-Migration `003_projects_tasks.sql` scopes task-project references and task assignees with composite foreign keys, and indexes workspace/project task lists and assignments. PostgreSQL integration tests use generated fixture IDs and remove only their own workspaces and users after the test. PostgreSQL 15 or newer is required for the composite assignee foreign key's column-specific `ON DELETE SET NULL` behavior.
-
-## Known dependency advisory
-
-The development dependency tree currently reports 19 moderate `sprintf-js` advisories through Jest. The available `npm audit fix --force` recommendation downgrades Jest to v25, so the dependency has been left unchanged for a compatible fix review. The production dependency audit reports zero vulnerabilities.
-
-## Requirements
+### Requirements
 
 - Node.js 20.19+ or 22.12+
 - npm 10+
 - PostgreSQL 15+
 
-## Local development
+### Setup
 
-1. Install dependencies from the repository root with `npm install`.
-2. Optionally copy `apps/api/.env.example` to `apps/api/.env` to override the API port or allowed web origin. The web development proxy reads that API port setting too.
-3. Start both applications with `npm run dev`.
-4. Open <http://localhost:5173>. The API health endpoint is <http://localhost:3001/api/health>.
+1. Clone the repository:
 
-The web development server proxies `/api` requests to the API. The API defaults to port `3001` and allows the web origin at `http://localhost:5173`. Do not put secrets in the example environment file.
+   ```bash
+   git clone https://github.com/ShasmithDokuri/TeamVault.git
+   cd TeamVault
+   npm install
+   ```
 
-## Checks
+2. Configure the API environment:
 
-- `npm test` runs API unit and route tests, PostgreSQL integration tests when `TEAMVAULT_TEST_DATABASE_URL` is set, and frontend component tests.
-- `npm run build` checks the API entry points and builds the frontend.
-- `npm run test:e2e --workspace @teamvault/web` runs the Chromium browser workflow against the dedicated local test database; see the database safety instructions above.
+   ```bash
+   cp apps/api/.env.example apps/api/.env
+   ```
 
-## Project layout
+   Set `DATABASE_URL` to your local PostgreSQL database. Keep real credentials in ignored environment files or a secret manager; never commit them.
 
-```text
-apps/
-  api/
-    src/
-      routes/
-      services/
-    test/
-  web/
-    src/
+3. Apply the database migrations:
+
+   ```bash
+   npm run db:migrate --workspace @teamvault/api
+   ```
+
+4. Start the frontend and API:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Open the frontend at http://localhost:5173. The API health endpoint is http://localhost:3001/api/health.
+
+Optional integrations such as Google OAuth, Redis, Kafka, and private object storage require their own configuration.
+
+## Testing and Build
+
+Run from the repository root:
+
+```bash
+npm test
+npm run build
+npm audit --omit=dev
 ```
 
-## Milestone 6 comments and activity
+PostgreSQL integration tests require `TEAMVAULT_TEST_DATABASE_URL` to point to the dedicated local `teamvault_m3_review` database. Follow the database safety checks documented in this repository before running integration or browser E2E tests.
 
-Workspace members can create and list comments on projects and tasks. Comment authors can edit their comments using the returned version; owners and admins can delete any comment, while authors can delete their own. Removing a workspace member clears their comment author attribution while preserving the comment history.
+The project's recent local verification completed successfully:
 
-Workspace members can read a paginated activity feed at `/api/workspaces/:workspaceId/activity`, using `limit` (1–100) and an optional `before` event ID. Project and task creation, updates, assignment changes, deletion, and comment activity write activity records in the same transaction as the change. Events contain actor and resource IDs plus changed field names; they exclude comment text, task or project text, email addresses, and credentials. Activity access is workspace-scoped and requires current membership.
+- API: 78 tests passed; 9 skipped.
+- Frontend: 6 tests passed.
+- Build: API syntax checks and frontend production build passed.
 
-Migration `004_comments_activity.sql` adds workspace-scoped comment references, versioning, activity event constraints, and feed indexes. PostgreSQL 15+ remains required for column-specific `ON DELETE SET NULL` foreign keys.
+Test counts can change as the project evolves. Skipped integration tests are not counted as passing.
 
-## Milestone 7 service boundaries
+## Project Documentation
 
-The API remains a single Express application and deployment. Its app composition root creates in-process service interfaces for workspaces, projects/tasks, comments, and activity, then injects them into the routers. Authentication remains in the auth module. Routes retain input validation and HTTP response mapping; repositories retain SQL, membership/role checks, and workspace scoping. Service interfaces are injectable so tests can substitute repository dependencies, while PostgreSQL integration tests continue to exercise the full local app and database.
+- [Portfolio walkthrough](PORTFOLIO.md)
+- [Security notes](SECURITY.md)
+- [EKS deployment guide](deploy/kubernetes/README.md)
 
-Activity event persistence is owned by the activity module through `recordActivityInTransaction(client, event)`. Project/task and comment repositories pass their existing PostgreSQL transaction client to this service API, keeping each event atomic with its corresponding change. This milestone establishes module APIs and ownership boundaries; it does not create separately deployed services or introduce network communication. Shared process/database lifecycle is a deliberate trade-off until a later extraction has a concrete deployment and data-ownership design.
+## Roadmap
 
-## Milestone 8 Kafka outbox and relay
+Potential next improvements include richer notifications, additional collaboration workflows, expanded observability, and validated production deployment automation.
 
-Project, task, and comment activity writes now create a sanitized domain event in PostgreSQL's `outbox_events` table inside the same transaction as the corresponding change and activity-feed row. The API does not need Kafka available to accept these writes. The outbox relay is a worker entry point in the same API package, not a separate service deployment.
+---
 
-After applying migrations, configure a local Kafka broker and pre-create the `teamvault.domain-events` topic before running `npm run worker:outbox --workspace @teamvault/api`. Set `KAFKA_BROKERS` to comma-separated `host:port` values. Optional SASL credentials use environment variables and require `KAFKA_SSL=true`; do not put real credentials in `.env.example`. The API itself does not connect to Kafka. No Docker broker setup is included in this milestone.
-
-The relay claims rows with expiring leases, renews them while sending, uses per-workspace Kafka keys, and retries failures with bounded exponential backoff. After 12 attempts by default, an event remains in the outbox marked for dead-letter review; abandoned worker claims count toward this limit and are dead-lettered when their lease expires. The payload is retained. A crash after Kafka accepts a message but before its database acknowledgment can cause redelivery. Messages have stable event IDs, and any future consumer must deduplicate by that ID. Kafka producer idempotence helps with broker-level retries but does not make database-to-Kafka delivery exactly once. Published and dead-lettered outbox rows currently have no retention or replay tooling.
-
-Notifications, containerization, and cloud infrastructure remain planned work for their designated milestones.
-
-## Milestone 9 private files
-
-Authenticated workspace members can attach files to projects or tasks using the API. Uploads are binary request bodies with `Content-Type` set to an allowed MIME type and `X-File-Name` set to a plain filename. The API currently allows PDF, JPEG, PNG, and WebP files up to 10 MiB; `FILE_MAX_BYTES` may lower this bound. The API checks basic file structure/signatures, stores a random server-generated S3 key, and never returns the key or a public URL. Downloads stream through the authenticated API with `private, no-store` and `nosniff` headers. The uploader or a workspace owner/admin may delete a file; all current workspace members may read/download it.
-
-Configure `AWS_REGION` and `S3_BUCKET` to enable S3 operations. The SDK uses the standard AWS credential provider chain (such as a local profile or an instance/workload role); do not add static AWS credentials to `.env.example` or commit them. Keep S3 Block Public Access enabled and use a bucket policy that denies public access. Without both storage settings, file upload/download/delete calls return an unavailable response; API startup and PostgreSQL tests do not require AWS. No live S3 call or AWS resource provisioning is part of local verification.
-
-Migration `006_private_files.sql` adds workspace/project/task-scoped metadata and lifecycle states. Failed uploads return a file ID and can be retried with `PUT /api/workspaces/:workspaceId/projects/:projectId/files/:fileId/content` (or the nested task path). Each retry gets a fresh object key and an abandoned pending upload can be reclaimed after five minutes; active uploads renew their database lease. At most four uploads per API process are buffered concurrently by default. Delete failures preserve a retryable metadata state. Project, task, or workspace deletion is rejected while attachments remain; delete attachments first. Existing integration tests use generated users/workspaces and a fake S3 adapter, then clean up only their own rows.
-
-## Milestone 11 Docker Compose development
-
-The local container stack runs the API, static frontend, PostgreSQL 16, and Redis 7. The frontend container serves the built React app through an unprivileged Nginx process and proxies `/api` and `/socket.io` to the API. The API image runs as the unprivileged Node user and installs production dependencies from `package-lock.json`. PostgreSQL and Redis data use Milestone 11-specific named Docker volumes (`teamvault-m11-local_postgres-data` and `teamvault-m11-local_redis-data`) and survive normal `docker compose down` operations.
-
-Requirements: Docker Desktop with Docker Compose v2. From the repository root, copy `.env.example` to `.env`, change the example PostgreSQL password to a unique local-only value, then run:
-
-```sh
-cp .env.example .env
-# Edit .env and set POSTGRES_PASSWORD to a unique, URL-safe local development password.
-docker compose up --build
-```
-
-Open <http://localhost:8080>. The API is available through the same origin at `/api`; PostgreSQL is bound only to `127.0.0.1` on the configured `POSTGRES_PORT`, and Redis is bound only to `127.0.0.1:6379`. Compose waits for PostgreSQL health, applies the idempotent numbered migrations, then starts the API and frontend. The API accepts PostgreSQL-backed writes if Redis later disconnects; Redis reconnects are handled by the existing runtime.
-
-Use `docker compose ps` to inspect health, `docker compose logs -f api web` to follow application logs, and `docker compose stop` to stop the stack. `docker compose down` removes containers and the private Compose network but preserves the named database/cache volumes. Do not use volume-removal options if you want to keep local data. The committed `.env.example` contains only local development defaults; never reuse its password or expose these ports to a network.
-
-The Compose stack does not start Kafka, the outbox relay worker, or connect to AWS. Domain events remain durable in PostgreSQL's outbox until a separately configured Kafka relay runs. File API calls remain unavailable until private S3 configuration and credentials are supplied. Neither AWS resources nor cloud services are provisioned by this local setup.
-
-## Milestone 12 local application and infrastructure configuration
-
-The browser app now supports account registration, login/logout, protected navigation, workspace creation and membership/role management, project management, and task CRUD through the existing workspace-scoped API routes. It uses a short-lived `HttpOnly; SameSite=Lax` session cookie and does not store session tokens in browser storage or URLs. Cookie-authenticated state-changing requests require the configured exact `WEB_ORIGIN`; `COOKIE_SECURE` defaults on in production and is explicitly disabled only for the local HTTP Compose stack. Existing bearer-token API clients remain supported. Workspace owners/admins can add an already-registered user by email; this does not send an invitation email.
-
-The browser also provides project/task comments, a paginated workspace activity feed, and project/task file upload, listing, download, and deletion through the authenticated API. Files stay private; the browser never receives S3 keys or public URLs. Socket.IO updates are workspace scoped and best-effort. For browser sockets, the API issues a 30-second one-time ticket through the same-origin, cookie-authenticated endpoint. Only the ticket hash is stored in PostgreSQL; the socket server consumes it once and rechecks the live session and membership before subscription and each event. The browser keeps the ticket only in memory for that connection attempt. On reconnect it requests a new ticket and reloads state through the normal APIs.
-
-Browser end-to-end tests run against only the dedicated local `teamvault_m3_review` database and use an in-memory fake object store. They apply the idempotent numbered migrations and clean only records created by the current uniquely identified test run. They do not use the development database or make AWS calls. Install the browser once with `npx playwright install chromium`, then set `TEAMVAULT_TEST_DATABASE_URL` privately in the same Terminal session to a local connection URL whose database is `teamvault_m3_review`, and run:
-
-```sh
-npm run test:e2e --workspace @teamvault/web
-```
-
-The test runner verifies the connected database identity before applying migrations, and refuses URLs that do not point to a local `teamvault_m3_review` database. It starts isolated API and Vite processes on ports 3317 and 4173 and shuts them down after the run.
-
-Milestone 12 Terraform files under `infra/terraform/` are configuration only and have not been applied or verified against AWS. A built-in approval gate defaults to false; do not enable it until a resource-by-resource estimate and deployment plan have been explicitly approved. The optional NAT gateway is disabled by default. Terraform state, plans, and real variable files are ignored by Git.
-
-## Milestone 13 browser product and EKS package
-
-The browser collaboration screens and their local end-to-end workflow are described above and are covered by the Playwright suite. The EKS package is under `deploy/kubernetes/`. It separates database liveness from readiness, runs migrations as a one-shot Job before application rollouts, deploys API/web workloads and the outbox worker with probes and resource bounds, and references externally managed Kubernetes Secrets. `TRUST_PROXY_HOPS` is 0 for local development; the documented ALB → Nginx → API topology uses 2. Keep the API Service private and change that count only with the proxy layout.
-
-The Terraform configuration now includes EKS and private service endpoints, but neither Terraform nor Kubernetes has been applied to AWS. The manifests contain image, HTTPS origin, bucket, and region placeholders. PostgreSQL, Redis, and Kafka connection secrets must be supplied through an approved secret-management process; the API database principal should be restricted, with a separate migration principal. Redis and Kafka are external service boundaries in this package. Private subnets have no default internet route with NAT disabled, so external Google OAuth or broker endpoints need separately approved connectivity. See [the EKS deployment guide](deploy/kubernetes/README.md) for validation, prerequisites, rollout, health, and rollback steps.
-
-## Milestone 14 CI and operational readiness
-
-GitHub Actions runs on pull requests and pushes to `main`. It uses a fresh PostgreSQL 16 service named `teamvault_m3_review`, verifies that database identity before tests, runs API/frontend unit and PostgreSQL integration suites, builds the app, checks production dependencies, runs browser E2E with Chromium, validates Terraform formatting/configuration using `init -backend=false`, and renders both Kubernetes Kustomize packages without contacting a cluster. Its repository token is read-only. It does not build/publish images, deploy Kubernetes, contact AWS, or use repository secrets. Dependabot checks npm packages and GitHub Actions weekly.
-
-The API emits one JSON access record per completed request outside test mode. It includes a generated request ID, HTTP method, route template, status, and elapsed time; it deliberately excludes full URLs, query strings, client IPs, headers, cookies, bodies, user identifiers, and resource values. The response includes `X-Request-Id` for support correlation. These records go to stdout; collecting them centrally requires an approved deployment logging pipeline and is not configured or verified here. Liveness is `/api/health`; readiness is `/api/ready` and fails closed when PostgreSQL cannot answer.
-
-A read-only k6 health scenario is at `apps/api/test/load-health.k6.js`. It makes 5 requests/second for one minute to the liveness and readiness endpoints, with a 1% error-rate and 500 ms p95 threshold. Run only against local Compose or another explicitly approved non-production target:
-
-```sh
-k6 run apps/api/test/load-health.k6.js
-BASE_URL=http://127.0.0.1:8080 k6 run apps/api/test/load-health.k6.js
-```
-
-This smoke scenario checks health-path behavior, not authenticated product throughput, multi-tenant workload capacity, or production scaling. Its thresholds are guardrails, not measured SLOs. No k6 result is claimed until it is run; local performance depends on hardware and service configuration.
-
-For local verification, the CI-equivalent checks are `npm ci`, `npm test` (with `TEAMVAULT_TEST_DATABASE_URL` privately set to the dedicated `teamvault_m3_review` database), `npm run build`, `npm audit --omit=dev`, `npm ls --depth=0`, `npx playwright install chromium`, `npm run test:e2e --workspace @teamvault/web`, `terraform -chdir=infra/terraform fmt -check -recursive`, `terraform -chdir=infra/terraform init -backend=false`, and `terraform -chdir=infra/terraform validate`. Do not configure CI or local tests to use the persistent development database. Terraform plan/apply and AWS deployment remain separately gated and are not CI actions.
-
-## Portfolio and security references
-
-See [PORTFOLIO.md](PORTFOLIO.md) for a feature walkthrough, architecture diagram, and a precise list of unverified integrations. [SECURITY.md](SECURITY.md) summarizes trust boundaries, implemented controls, and outstanding security/operations work.
+Built as a full-stack engineering portfolio project.
