@@ -6,7 +6,7 @@ export class ApiError extends Error {
 
 export async function apiRequest(path, { method = 'GET', body, browserSession = false, headers = {} } = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    method, credentials: 'include',
+    method, credentials: 'same-origin',
     headers: { Accept: 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(browserSession ? { 'X-TeamVault-Auth-Mode': 'cookie' } : {}), ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });

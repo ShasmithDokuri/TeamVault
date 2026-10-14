@@ -13,6 +13,9 @@ function readFileStorageConfig(env = process.env) {
   const driver = env.FILE_STORAGE_DRIVER?.trim() || 's3';
   const bucket = env.S3_BUCKET?.trim() || null;
   const region = env.AWS_REGION?.trim() || null;
+  const endpoint = env.S3_ENDPOINT?.trim() || null;
+  const accessKeyId = env.S3_ACCESS_KEY_ID?.trim() || null;
+  const secretAccessKey = env.S3_SECRET_ACCESS_KEY?.trim() || null;
   const localPath = env.FILE_STORAGE_PATH?.trim() || DEFAULT_LOCAL_STORAGE_PATH;
 
   if (!['s3', 'local'].includes(driver)) {
@@ -21,6 +24,10 @@ function readFileStorageConfig(env = process.env) {
 
   if (driver === 's3' && bucket && !region) {
     throw new Error('AWS_REGION is required when S3_BUCKET is configured.');
+  }
+
+  if (driver === 's3' && endpoint && (!accessKeyId || !secretAccessKey)) {
+    throw new Error('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required with S3_ENDPOINT.');
   }
 
   if (driver === 'local' && !localPath) {
@@ -47,6 +54,9 @@ function readFileStorageConfig(env = process.env) {
     driver,
     bucket,
     region,
+    endpoint,
+    accessKeyId,
+    secretAccessKey,
     localPath,
     maxFileBytes,
     maxConcurrentUploads,

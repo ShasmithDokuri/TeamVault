@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ io: vi.fn(), realtimeTicket: vi.fn() }));
 vi.mock('socket.io-client', () => ({ io: mocks.io }));
-vi.mock('./api.js', () => ({ api: { auth: { realtimeTicket: mocks.realtimeTicket } } }));
-
+vi.mock('./api.js', () => ({
+  API_BASE_URL: '',
+  api: { auth: { realtimeTicket: mocks.realtimeTicket } },
+}));
 import { useWorkspaceRealtime } from './useWorkspaceRealtime.js';
 
 describe('workspace realtime browser connection', () => {

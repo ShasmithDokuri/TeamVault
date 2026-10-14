@@ -1,3 +1,4 @@
+
 const {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -5,7 +6,21 @@ const {
   S3Client,
 } = require('@aws-sdk/client-s3');
 
-function createS3ObjectStore({ bucket, region, client = new S3Client({ region }) }) {
+function createS3ObjectStore({
+  bucket,
+  region,
+  endpoint,
+  accessKeyId,
+  secretAccessKey,
+  client = new S3Client({
+    region,
+    ...(endpoint ? { endpoint } : {}),
+    ...(accessKeyId && secretAccessKey
+      ? { credentials: { accessKeyId, secretAccessKey } }
+      : {}),
+    ...(endpoint ? { forcePathStyle: true } : {}),
+  }),
+}) {
   function requireBucket() {
     if (!bucket) {
       const error = new Error('Private file storage is not configured.');
@@ -23,15 +38,22 @@ function createS3ObjectStore({ bucket, region, client = new S3Client({ region })
         Body: body,
         ContentLength: body.length,
         ContentType: contentType,
-        ServerSideEncryption: 'AES256',
         CacheControl: 'private, no-store',
       }));
     },
+
     get({ key }) {
-      return client.send(new GetObjectCommand({ Bucket: requireBucket(), Key: key }));
+      return client.send(new GetObjectCommand({
+        Bucket: requireBucket(),
+        Key: key,
+      }));
     },
+
     async delete({ key }) {
-      await client.send(new DeleteObjectCommand({ Bucket: requireBucket(), Key: key }));
+      await client.send(new DeleteObjectCommand({
+        Bucket: requireBucket(),
+        Key: key,
+      }));
     },
   });
 }

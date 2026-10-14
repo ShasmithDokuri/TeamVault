@@ -17,10 +17,16 @@ function createFileService({
   config = readFileStorageConfig(),
 } = {}) {
   const storage = objectStore ?? (
-    config.driver === 'local'
-      ? createLocalObjectStore({ directory: config.localPath })
-      : createS3ObjectStore({ bucket: config.bucket, region: config.region })
-  );
+  config.driver === 'local'
+    ? createLocalObjectStore({ directory: config.localPath })
+    : createS3ObjectStore({
+        bucket: config.bucket,
+        region: config.region,
+        endpoint: config.endpoint,
+        accessKeyId: config.accessKeyId,
+        secretAccessKey: config.secretAccessKey,
+      })
+);
 
   return Object.freeze({
     canUploadToResource: (input) => repository.canUploadToResource(input),

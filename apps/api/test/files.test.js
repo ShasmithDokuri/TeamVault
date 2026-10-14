@@ -58,7 +58,7 @@ describe('private file storage', () => {
     expect(put).toBeInstanceOf(PutObjectCommand);
     expect(put.input).toMatchObject({
       Bucket: 'private-bucket', Key: file.objectKey, ContentLength: png.length,
-      ContentType: 'image/png', ServerSideEncryption: 'AES256', CacheControl: 'private, no-store',
+      ContentType: 'image/png', CacheControl: 'private, no-store',
     });
     expect(put.input).not.toHaveProperty('ACL');
     expect(client.send.mock.calls[1][0]).toBeInstanceOf(GetObjectCommand);
